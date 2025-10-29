@@ -64,12 +64,12 @@ jobs:
       # Terraform Lint (TFLint)
       # -------------------------
       - name: 🧹 Install and Run TFLint
-  	run: |
-    	  curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
-    	  tflint --version
-    	  tflint --init
-    	  tflint --recursive
-  	  working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+          tflint --version
+          tflint --init
+          tflint --recursive
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
       # -------------------------
       # Run Checkov Security Scan
@@ -84,10 +84,12 @@ jobs:
       # -------------------------
       - name: 🔒 Run OPA Policy Evaluation
         run: |
+          wget https://openpolicyagent.org/downloads/latest/opa_linux_amd64 -O opa
+          sudo install -m 0755 opa /usr/local/bin/opa
           opa eval --fail-defined --format pretty \
-          --data ./policies/opa \
-          "data.terraform.deny"
-        continue-on-error: true  # avoid blocking if no OPA policies yet
+            --data ./policies/opa \
+            "data.terraform.deny"
+        continue-on-error: true
         working-directory: .
 
       # -------------------------
@@ -141,4 +143,3 @@ jobs:
       - name: ✅ Terraform Apply
         run: terraform apply -auto-approve tfplan
         working-directory: ./infrastructure/network
-
