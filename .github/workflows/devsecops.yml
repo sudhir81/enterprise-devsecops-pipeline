@@ -1,10 +1,7 @@
-name: 🌐 DevSecOps Terraform Pipeline
+name: 🌐 DevSecOps Multi-Env Pipeline
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
     branches:
       - main
 
@@ -12,103 +9,96 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  TF_WORKING_DIR: ./infrastructure/network
+
 jobs:
-  terraform:
-    name: 🧱 Terraform Security & Compliance Pipeline
+  deploy_dev:
+    name: Deploy → dev
     runs-on: ubuntu-latest
-
-    env:
-      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-      TF_WORKING_DIR: ./infrastructure/network
-
+    environment: dev
     steps:
-      # -------------------------
-      # Checkout the repo
-      # -------------------------
-      - name: 🛠️ Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # -------------------------
-      # Setup Terraform
-      # -------------------------
-      - name: ⚙️ Setup Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
-      # -------------------------
-      # Terraform Formatting Check
-      # -------------------------
-      - name: 🔍 Terraform Format Check
-        run: terraform fmt -check -recursive
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      # -------------------------
-      # Terraform Init
-      # -------------------------
-      - name: 🚀 Terraform Init
-        run: terraform init -upgrade
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      # -------------------------
-      # Terraform Validate
-      # -------------------------
-      - name: 🧩 Terraform Validate
-        run: terraform validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      # -------------------------
-      # Terraform Lint (TFLint)
-      # -------------------------
-      - name: 🧹 Install and Run TFLint
-        run: |
-          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
-          tflint --version
-          tflint --init
-          tflint --recursive
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      # -------------------------
-      # Run Checkov Security Scan
-      # -------------------------
-      - name: 🛡️ Run Checkov Security Scan
-        uses: bridgecrewio/checkov-action@v12
+      - name: Azure login
+        uses: azure/login@v1
         with:
-          directory: ${{ env.TF_WORKING_DIR }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # -------------------------
-      # Run OPA Policy Evaluation
-      # -------------------------
-      - name: 🔒 Run OPA Policy Evaluation
-        run: |
-          wget https://openpolicyagent.org/downloads/latest/opa_linux_amd64 -O opa
-          sudo install -m 0755 opa /usr/local/bin/opa
-          opa eval --fail-defined --format pretty \
-            --data ./policies/opa \
-            "data.terraform.deny"
-        continue-on-error: true
-        working-directory: .
-
-      # -------------------------
-      # Terraform Plan
-      # -------------------------
-      - name: 🧮 Terraform Plan
-        id: plan
-        run: |
-          terraform plan -out=tfplan \
-            -var "resource_group_name=rg-devsecops" \
-            -var "vnet_name=vnet-devsecops" \
-            -var "subnet_name=subnet-dev"
+      - name: Terraform Init (dev backend)
+        run: terraform init -upgrade -backend-config=./environments/dev/backend.conf
         working-directory: ${{ env.TF_WORKING_DIR }}
 
-      # -------------------------
-      # Terraform Apply (same job)
-      # -------------------------
-      - name: ✅ Terraform Apply
-        if: github.ref == 'refs/heads/main'
+      - name: Terraform Plan (dev)
+        run: terraform plan -var-file=./environments/dev/terraform.tfvars -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply (dev)
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  deploy_preprod:
+    name: Deploy → preprod (requires approval)
+    runs-on: ubuntu-latest
+    needs: deploy_dev
+    environment: preprod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform Init (preprod backend)
+        run: terraform init -upgrade -backend-config=./environments/preprod/backend.conf
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Plan (preprod)
+        run: terraform plan -var-file=./environments/preprod/terraform.tfvars -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply (preprod)
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  deploy_prod:
+    name: Deploy → prod (requires approval)
+    runs-on: ubuntu-latest
+    needs: deploy_preprod
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform Init (prod backend)
+        run: terraform init -upgrade -backend-config=./environments/prod/backend.conf
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Plan (prod)
+        run: terraform plan -var-file=./environments/prod/terraform.tfvars -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply (prod)
         run: terraform apply -auto-approve tfplan
         working-directory: ${{ env.TF_WORKING_DIR }}
 

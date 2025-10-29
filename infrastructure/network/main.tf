@@ -8,7 +8,12 @@ terraform {
     }
   }
 
-  backend "local" {}
+  backend "azurerm" {
+    resource_group_name   = "rg-tfstate"
+    storage_account_name  = "tfsstate1761729074"
+    container_name        = "tfstate"
+    key                   = "network.tfstate"
+  }
 }
 
 provider "azurerm" {
@@ -38,5 +43,4 @@ resource "azurerm_subnet" "subnet" {
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = var.subnet_prefixes
 }
-
 
