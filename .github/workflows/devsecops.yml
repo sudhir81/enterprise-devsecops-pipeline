@@ -50,7 +50,7 @@ jobs:
       # Terraform Init
       # -------------------------
       - name: 🚀 Terraform Init
-        run: terraform init
+        run: terraform init -upgrade
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       # -------------------------
@@ -105,42 +105,10 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       # -------------------------
-      # Upload Plan Artifact
+      # Terraform Apply (same job)
       # -------------------------
-      - name: 📦 Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TF_WORKING_DIR }}/tfplan
-
-  # -------------------------
-  # Optional Approval Stage
-  # -------------------------
-  deploy:
-    name: 🚀 Manual Apply to Azure
-    needs: terraform
-    runs-on: ubuntu-latest
-    environment:
-      name: dev
-      url: https://portal.azure.com/
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: 🛠️ Checkout repository
-        uses: actions/checkout@v4
-
-      - name: ⚙️ Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.13.3
-
-      - name: 🚀 Terraform Init
-        run: terraform init
-        working-directory: ./infrastructure/network
-
       - name: ✅ Terraform Apply
+        if: github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve tfplan
-        working-directory: ./infrastructure/network
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
