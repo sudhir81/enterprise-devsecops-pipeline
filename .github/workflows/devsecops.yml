@@ -63,11 +63,13 @@ jobs:
       # -------------------------
       # Terraform Lint (TFLint)
       # -------------------------
-      - name: 🧹 Run TFLint
-        uses: terraform-linters/tflint-action@v1
-        with:
-          working_directory: ${{ env.TF_WORKING_DIR }}
-          tflint_version: latest
+      - name: 🧹 Install and Run TFLint
+  	run: |
+    	  curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+    	  tflint --version
+    	  tflint --init
+    	  tflint --recursive
+  	  working-directory: ${{ env.TF_WORKING_DIR }}
 
       # -------------------------
       # Run Checkov Security Scan
