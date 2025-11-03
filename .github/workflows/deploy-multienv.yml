@@ -31,11 +31,11 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Terraform Init (dev backend)
-        run: terraform init -upgrade -backend-config=../environments/dev/backend.conf
+        run: terraform init -reconfigure -backend-config=../../environments/dev/backend.conf
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform Plan (dev)
-        run: terraform plan -var-file=../environments/dev/terraform.tfvars -out=tfplan
+        run: terraform plan -var-file=../../environments/dev/terraform.tfvars -out=tfplan
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform Apply (dev)
@@ -61,11 +61,11 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Terraform Init (preprod backend)
-        run: terraform init -upgrade -backend-config=../environments/preprod/backend.conf
+        run: terraform init -reconfigure -backend-config=../../environments/preprod/backend.conf
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform Plan (preprod)
-        run: terraform plan -var-file=../environments/preprod/terraform.tfvars -out=tfplan
+        run: terraform plan -var-file=../../environments/preprod/terraform.tfvars -out=tfplan
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform Apply (preprod)
@@ -91,11 +91,11 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Terraform Init (prod backend)
-        run: terraform init -upgrade -backend-config=../environments/prod/backend.conf
+        run: terraform init -reconfigure -backend-config=../../environments/prod/backend.conf
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform Plan (prod)
-        run: terraform plan -var-file=../environments/prod/terraform.tfvars -out=tfplan
+        run: terraform plan -var-file=../../environments/prod/terraform.tfvars -out=tfplan
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform Apply (prod)
