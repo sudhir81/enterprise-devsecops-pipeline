@@ -1,0 +1,141 @@
+name: DevSecOps Terraform Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  TF_VERSION: "1.6.0"
+  TF_WORKING_DIR: "./infrastructure/network"
+
+jobs:
+  # 1️⃣ Validate Terraform Code
+  validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: TFLint
+        uses: reviewdog/action-tflint@v2
+        with:
+          reporter: github-pr-review
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 2️⃣ Security Scanning (Checkov)
+  checkov:
+    name: Security Scan - Checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ./infrastructure
+          framework: terraform
+          soft_fail: false
+
+  # 3️⃣ OPA Policy Enforcement
+  opa:
+    name: OPA Policy Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa && sudo mv opa /usr/local/bin/
+      - name: Evaluate Policies
+        run: |
+          terraform show -json ./infrastructure/network/tfplan > terraform.plan.json
+          opa eval --data policies/opa --input terraform.plan.json "data.terraform.policy.deny"
+
+  # 4️⃣ Terraform Plan
+  plan:
+    name: Terraform Plan
+    needs: [validate, checkov, opa]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init (Remote Backend)
+        run: terraform init -backend-config=../../environments/dev/backend.conf
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Plan
+        run: terraform plan -var-file=../../environments/dev/terraform.tfvars -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+
+  # 5️⃣ Terraform Apply (Manual Approval)
+  apply:
+    name: Terraform Apply (Manual Trigger)
+    if: github.event_name == 'workflow_dispatch'
+    needs: [plan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        run: terraform init -backend-config=../../environments/dev/backend.conf
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  # 6️⃣ Slack Notification (Optional)
+  notify:
+    name: Notify on Failure
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack Notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_MESSAGE: "🚨 Terraform pipeline failed in ${{ github.workflow }} for ${{ github.ref }}"
+
