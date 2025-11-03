@@ -11,7 +11,7 @@ env:
   TF_WORKING_DIR: "./infrastructure/network"
 
 jobs:
-  # 1️⃣ Validate Terraform Code
+  # 1️⃣ Terraform Validation
   validate:
     name: Terraform Validate
     runs-on: ubuntu-latest
@@ -24,7 +24,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ⚡ Cache Terraform plugins and modules
       - name: Cache Terraform
         uses: actions/cache@v4
         with:
@@ -35,8 +34,7 @@ jobs:
           restore-keys: |
             terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
 
-      # Auto-fix and verify formatting
-      - name: Terraform Format Check
+      - name: Terraform Format Check (auto-fix)
         run: |
           terraform fmt -recursive
           terraform fmt -check -recursive
@@ -64,9 +62,10 @@ jobs:
           name: validate-logs
           path: ${{ runner.temp }}
 
-  # 2️⃣ Security Scanning (Checkov)
+  # 2️⃣ Checkov Security Scan
   checkov:
     name: Security Scan - Checkov
+    needs: [validate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,61 +84,10 @@ jobs:
           name: checkov-logs
           path: ${{ runner.temp }}
 
-  # 3️⃣ OPA Policy Enforcement
-  opa:
-    name: OPA Policy Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      # ⚡ Cache Terraform provider/plugins
-      - name: Cache Terraform
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.terraform.d/plugin-cache
-            .terraform
-          key: terraform-${{ runner.os }}-${{ env.TF_VERSION }}-${{ hashFiles('**/*.tf') }}
-          restore-keys: |
-            terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
-
-      - name: Download Plan Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: ${{ env.TF_WORKING_DIR }}
-
-      - name: Terraform Init (for OPA)
-        run: terraform init -backend=false
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      - name: Install OPA
-        run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
-          chmod +x opa && sudo mv opa /usr/local/bin/
-
-      - name: Evaluate Policies
-        run: |
-          terraform show -json tfplan > terraform.plan.json
-          opa eval --data policies/opa --input terraform.plan.json "data.terraform.policy.deny"
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      - name: Upload Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: opa-logs
-          path: ${{ runner.temp }}
-
-  # 4️⃣ Terraform Plan
+  # 3️⃣ Terraform Plan
   plan:
     name: Terraform Plan
-    needs: [validate, checkov]
+    needs: [checkov]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -174,11 +122,62 @@ jobs:
           name: tfplan
           path: ${{ env.TF_WORKING_DIR }}/tfplan
 
-  # 5️⃣ Terraform Apply (Manual Approval)
+  # 4️⃣ OPA Policy Check (runs AFTER plan)
+  opa:
+    name: OPA Policy Check
+    needs: [plan]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            .terraform
+          key: terraform-${{ runner.os }}-${{ env.TF_VERSION }}-${{ hashFiles('**/*.tf') }}
+          restore-keys: |
+            terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init (for OPA)
+        run: terraform init -backend=false
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Install OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa && sudo mv opa /usr/local/bin/
+
+      - name: Evaluate OPA Policies
+        run: |
+          terraform show -json tfplan > terraform.plan.json
+          opa eval --data policies/opa --input terraform.plan.json "data.terraform.policy.deny"
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opa-logs
+          path: ${{ runner.temp }}
+
+  # 5️⃣ Terraform Apply (Manual Trigger)
   apply:
     name: Terraform Apply (Manual Trigger)
     if: github.event_name == 'workflow_dispatch'
-    needs: [plan, opa]
+    needs: [opa]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
