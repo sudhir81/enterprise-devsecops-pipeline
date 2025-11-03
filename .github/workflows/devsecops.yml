@@ -24,6 +24,17 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # ⚡ Cache Terraform plugins and modules
+      - name: Cache Terraform
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            .terraform
+          key: terraform-${{ runner.os }}-${{ env.TF_VERSION }}-${{ hashFiles('**/*.tf') }}
+          restore-keys: |
+            terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
+
       # Auto-fix and verify formatting
       - name: Terraform Format Check
         run: |
@@ -86,6 +97,27 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # ⚡ Cache Terraform provider/plugins
+      - name: Cache Terraform
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            .terraform
+          key: terraform-${{ runner.os }}-${{ env.TF_VERSION }}-${{ hashFiles('**/*.tf') }}
+          restore-keys: |
+            terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init (for OPA)
+        run: terraform init -backend=false
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
       - name: Install OPA
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
@@ -93,8 +125,9 @@ jobs:
 
       - name: Evaluate Policies
         run: |
-          terraform show -json ./infrastructure/network/tfplan > terraform.plan.json
+          terraform show -json tfplan > terraform.plan.json
           opa eval --data policies/opa --input terraform.plan.json "data.terraform.policy.deny"
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Upload Logs on Failure
         if: failure()
@@ -106,7 +139,7 @@ jobs:
   # 4️⃣ Terraform Plan
   plan:
     name: Terraform Plan
-    needs: [validate, checkov, opa]
+    needs: [validate, checkov]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -116,6 +149,16 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            .terraform
+          key: terraform-${{ runner.os }}-${{ env.TF_VERSION }}-${{ hashFiles('**/*.tf') }}
+          restore-keys: |
+            terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
 
       - name: Terraform Init (Remote Backend)
         run: terraform init -backend-config=../../environments/dev/backend.conf
@@ -135,7 +178,7 @@ jobs:
   apply:
     name: Terraform Apply (Manual Trigger)
     if: github.event_name == 'workflow_dispatch'
-    needs: [plan]
+    needs: [plan, opa]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -145,6 +188,16 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            .terraform
+          key: terraform-${{ runner.os }}-${{ env.TF_VERSION }}-${{ hashFiles('**/*.tf') }}
+          restore-keys: |
+            terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
 
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
