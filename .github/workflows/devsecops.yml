@@ -36,7 +36,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: TFLint
-        uses: reviewdog/action-tflint@v3.7.0
+        uses: reviewdog/action-tflint@v3.1.1
         with:
           reporter: github-pr-review
           fail_on_error: true
