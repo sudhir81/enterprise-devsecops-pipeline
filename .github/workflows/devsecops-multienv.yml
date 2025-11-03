@@ -18,6 +18,7 @@ env:
   TF_ROOT_DIR: "./infrastructure/network"
 
 jobs:
+  # 1️⃣ Terraform Validation
   validate:
     name: Terraform Validate
     runs-on: ubuntu-latest
@@ -52,6 +53,7 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}
 
+  # 2️⃣ Checkov Security Scan
   checkov:
     name: Security Scan - Checkov
     needs: [validate]
@@ -66,12 +68,19 @@ jobs:
           framework: terraform
           soft_fail: false
 
+  # 3️⃣ Terraform Plan
   plan:
     name: Terraform Plan
     needs: [checkov]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # 🔐 Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -102,12 +111,19 @@ jobs:
           name: tfplan
           path: ${{ env.TF_ROOT_DIR }}/tfplan
 
+  # 4️⃣ OPA Policy Check
   opa:
     name: OPA Policy Check
     needs: [plan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # 🔐 Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -145,6 +161,7 @@ jobs:
           opa eval --data policies/opa --input terraform.plan.json "data.terraform.policy.deny"
         working-directory: ${{ env.TF_ROOT_DIR }}
 
+  # 5️⃣ Terraform Apply (Manual Approval)
   apply:
     name: Terraform Apply (Manual Approval)
     if: github.event_name == 'workflow_dispatch'
@@ -153,6 +170,12 @@ jobs:
     environment: ${{ github.event.inputs.environment }}
     steps:
       - uses: actions/checkout@v4
+
+      # 🔐 Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
