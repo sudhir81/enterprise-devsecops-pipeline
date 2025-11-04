@@ -8,7 +8,7 @@ resource "azurerm_public_ip" "test_public_ip" {
   location            = "eastus"
   resource_group_name = "rg-devsecops-dev"
   allocation_method   = "Dynamic"
-  sku                 = "Basic"
+  sku                 = "Standard"
 }
 
 # ⚠️ Network Security Group allowing all inbound traffic (Security Violation)
