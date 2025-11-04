@@ -7,7 +7,7 @@ resource "azurerm_public_ip" "test_public_ip" {
   name                = "unsecured-public-ip"
   location            = "eastus"
   resource_group_name = "rg-devsecops-dev"
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
   sku                 = "Standard"
 }
 
