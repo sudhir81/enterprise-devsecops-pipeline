@@ -1,10 +1,8 @@
-# ========================
-# 🌍 Environment: Production
-# ========================
-
 resource_group_name  = "rg-devsecops-prod"
 location             = "eastus"
 vnet_name            = "vnet-devsecops-prod"
 subnet_name          = "subnet-prod"
+vnet_address_space   = ["10.2.0.0/16"]
+subnet_prefixes      = ["10.2.1.0/24"]
 env                  = "prod"
 
