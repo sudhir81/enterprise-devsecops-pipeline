@@ -210,9 +210,10 @@ Terraform Apply: Succeeded ✅
 ## 👨‍💻 Author
 
 Sudhir Dalvi
-💼 Cloud & DevOps Engineer | Terraform | Azure | DevSecOps.
-🔗 [GitHub: sudhir81](https://github.com/sudhir81).
+💼 Cloud & DevOps Engineer | Terraform | Azure | DevSecOps.                      
+🔗 [GitHub: sudhir81](https://github.com/sudhir81).                             
 📈 [LinkedIn (Add link here)](https://www.linkedin.com/in/sudhir-dalvi-0591a95a/).
+
 
 
 
