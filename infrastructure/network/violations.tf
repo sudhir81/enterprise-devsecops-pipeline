@@ -1,9 +1,6 @@
 # ❌ Intentional Violations for DevSecOps Testing
 # This file is used to test Checkov + OPA scans in the CI pipeline
 
-provider "azurerm" {
-  features {}
-}
 
 # ⚠️ Missing tags + using a public IP = Checkov & OPA violations
 resource "azurerm_public_ip" "test_public_ip" {
