@@ -40,7 +40,7 @@ jobs:
           restore-keys: |
             terraform-${{ runner.os }}-${{ env.TF_VERSION }}-
 
-      - name: Terraform Format Check (auto-fix)
+      - name: Terraform Format Check
         run: |
           terraform fmt -recursive
           terraform fmt -check -recursive
@@ -76,11 +76,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 🔐 Azure Login
+      # ✅ Azure Login
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ✅ Verify Login
+      - name: Verify Azure Login
+        run: az account show
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -119,11 +123,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 🔐 Azure Login
+      # ✅ Azure Login
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Verify Azure Login
+        run: az account show
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -146,10 +153,6 @@ jobs:
           name: tfplan
           path: ${{ env.TF_ROOT_DIR }}
 
-      - name: Terraform Init (for OPA)
-        run: terraform init -backend=false
-        working-directory: ${{ env.TF_ROOT_DIR }}
-
       - name: Install OPA
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
@@ -171,11 +174,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 🔐 Azure Login
+      # ✅ Azure Login
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Verify Azure Login
+        run: az account show
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
