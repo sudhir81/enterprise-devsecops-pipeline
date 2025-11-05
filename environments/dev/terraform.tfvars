@@ -1,8 +1,8 @@
-resource_group_name  = "rg-devsecops-dev"
-location             = "eastus"
-vnet_name            = "vnet-devsecops-dev"
-subnet_name          = "subnet-dev"
-vnet_address_space   = ["10.0.0.0/16"]
-subnet_prefixes      = ["10.0.1.0/24"]
-env                  = "dev"
+location           = "eastus"
+environment        = "dev"
+prefix             = "tf-aks-dev"
+acr_name           = "tfacrdev12345"   # must be globally unique
+aks_node_count     = 1
+aks_node_size      = "Standard_DS2_v2"
+kubernetes_version = "1.28.10"
 

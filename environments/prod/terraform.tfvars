@@ -1,8 +1,8 @@
-resource_group_name  = "rg-devsecops-prod"
-location             = "eastus"
-vnet_name            = "vnet-devsecops-prod"
-subnet_name          = "subnet-prod"
-vnet_address_space   = ["10.2.0.0/16"]
-subnet_prefixes      = ["10.2.1.0/24"]
-env                  = "prod"
+location           = "eastus"
+environment        = "prod"
+prefix             = "tf-aks-prod"
+acr_name           = "tfacrprod12345"
+aks_node_count     = 3
+aks_node_size      = "Standard_DS2_v2"
+kubernetes_version = "1.28.10"
 
