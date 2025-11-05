@@ -15,7 +15,7 @@ on:
 
 env:
   TF_VERSION: "1.13.3"
-  TF_ROOT_DIR: "project4-enterprise-aks-devops-platform"  # ✅ Removed './' to fix working directory issue
+  TF_ROOT_DIR: "project4-enterprise-aks-devops-platform"
   IMAGE_NAME: "sampleapp"
   ACR_NAME: "devopsacr001"
   AKS_CLUSTER_NAME: "devops-aks"
@@ -36,6 +36,14 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+
+      # ✅ Diagnostic step to confirm folder structure
+      - name: 🔍 Debug Folder Structure
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Listing repository structure under ${{ env.TF_ROOT_DIR }}:"
+          ls -R ${{ env.TF_ROOT_DIR }}
 
       - name: Terraform Init (No Backend)
         run: terraform init -backend=false
