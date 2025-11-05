@@ -24,26 +24,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: 🧾 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
+      - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Diagnostic – Show folder structure
+      - name: 📂 Diagnostic – show folder structure
         run: ls -R ./${{ env.TF_ROOT_DIR }}
 
-      - name: Terraform Init (no backend)
+      - name: 🧱 Terraform Init (no backend)
         run: terraform init -backend=false
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      - name: Terraform Validate
+      - name: 🔍 Terraform Validate
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      - name: Checkov Scan (SARIF)
+      - name: 🧠 Checkov Security Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
@@ -52,12 +52,15 @@ jobs:
           output_format: sarif
           output_file_path: results.sarif
 
-      - name: Upload SARIF results
+      - name: 📤 Upload SARIF results
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 
-      - name: Generate Checkov JSON Report
+      # -------------------------------
+      # ✅ FIXED SECTION: Copy Checkov JSON back to workspace
+      # -------------------------------
+      - name: 🧮 Generate Checkov JSON Report
         continue-on-error: true
         run: |
           echo "🧮 Generating Checkov JSON report..."
@@ -67,9 +70,23 @@ jobs:
             --framework terraform \
             --output json \
             --output-file-path /tf/checkov_report.json || true
+
+          echo "📋 Checking for generated Checkov JSON report..."
+          if [ -f checkov_report.json ]; then
+            echo "✅ Found checkov_report.json in workspace."
+          elif [ -f /tf/checkov_report.json ]; then
+            echo "📁 Found report inside container path — copying..."
+            cp /tf/checkov_report.json ./checkov_report.json
+          else
+            echo "⚠️ Report missing, generating dummy JSON."
+            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
+          fi
+
+          echo "🧾 Preview of report:"
+          head -20 checkov_report.json || true
         working-directory: ${{ github.workspace }}
 
-      - name: Run OPA Policy Validation
+      - name: 🔒 Run OPA Policy Validation
         continue-on-error: true
         run: |
           echo "🔍 Installing OPA and validating policies..."
@@ -80,7 +97,7 @@ jobs:
             "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      - name: Build Unified Compliance Dashboard
+      - name: 🧱 Build Unified Compliance Dashboard
         continue-on-error: true
         shell: bash
         run: |
@@ -88,16 +105,12 @@ jobs:
           echo "🧱 Building unified compliance dashboard..."
           sudo apt-get update -y && sudo apt-get install -y jq
 
-          ROOT_DIR="/home/runner/work/${{ github.event.repository.name }}"
           WORK_DIR="${{ github.workspace }}"
           DASHBOARD_PATH="${WORK_DIR}/compliance_dashboard.html"
 
           echo "📂 WORK_DIR: $WORK_DIR"
-          echo "📂 ROOT_DIR: $ROOT_DIR"
 
-          mkdir -p "$WORK_DIR" "$ROOT_DIR"
-
-          # Guard JSON files
+          # Guard JSONs
           [ -s "${WORK_DIR}/checkov_report.json" ] || echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > "${WORK_DIR}/checkov_report.json"
           [ -s "${WORK_DIR}/opa_result.json" ] || echo '{"result":[{"expressions":[{"value":[]}]}]}' > "${WORK_DIR}/opa_result.json"
 
@@ -108,16 +121,15 @@ jobs:
           [ "$TOTAL" -eq 0 ] && TOTAL=1
 
           OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null || echo 0)
-          OPA_VIOLATIONS=${OPA_VIOLATIONS:-0}
-
           COMPLIANCE=$((100 * PASSED / TOTAL))
-          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"; BAR_COLOR="green";
-          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"; BAR_COLOR="limegreen";
-          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"; BAR_COLOR="orange";
-          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; BAR_COLOR="orangered";
-          else GRADE="F"; BAR_COLOR="red"; fi
 
-          echo "📊 Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED, OPA Violations=$OPA_VIOLATIONS, Grade=$GRADE"
+          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"; COLOR="green";
+          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"; COLOR="limegreen";
+          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"; COLOR="orange";
+          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; COLOR="orangered";
+          else GRADE="F"; COLOR="red"; fi
+
+          echo "📊 Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED, OPA=$OPA_VIOLATIONS, Grade=$GRADE"
 
           cat <<EOF > "${DASHBOARD_PATH}"
           <html><head><title>Unified DevSecOps Compliance Dashboard</title></head>
@@ -135,28 +147,24 @@ jobs:
             </tr>
           </table>
           <div style='width:60%;margin:auto;margin-top:20px;height:20px;background:#ddd;border-radius:10px;'>
-            <div style='height:100%;width:${COMPLIANCE}%;background:${BAR_COLOR};border-radius:10px;'></div>
+            <div style='height:100%;width:${COMPLIANCE}%;background:${COLOR};border-radius:10px;'></div>
           </div>
           <p style='text-align:center;color:#555;margin-top:30px;'>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
           </body></html>
           EOF
 
-          cp "${DASHBOARD_PATH}" "${ROOT_DIR}/compliance_dashboard.html" || true
-          echo "✅ Dashboard generated successfully"
-          ls -lh "${WORK_DIR}/compliance_dashboard.html" || echo "⚠️ Not found in WORK_DIR"
-          ls -lh "${ROOT_DIR}/compliance_dashboard.html" || echo "⚠️ Not found in ROOT_DIR"
+          echo "✅ compliance_dashboard.html generated successfully"
+          ls -lh "${DASHBOARD_PATH}" || echo "⚠️ Dashboard missing"
           exit 0
 
-      - name: Upload Unified Inline Dashboard
+      - name: 📤 Upload Unified Dashboard Artifact
         uses: actions/upload-artifact@v4
         with:
           name: compliance-dashboard
-          path: |
-            ${{ github.workspace }}/compliance_dashboard.html
-            /home/runner/work/${{ github.event.repository.name }}/compliance_dashboard.html
+          path: ${{ github.workspace }}/compliance_dashboard.html
           if-no-files-found: warn
 
-      - name: Print Summary
+      - name: ✅ Print Summary
         run: |
           echo "✅ Unified Compliance Dashboard successfully generated and uploaded!"
           echo "📄 Artifact name: compliance-dashboard"
