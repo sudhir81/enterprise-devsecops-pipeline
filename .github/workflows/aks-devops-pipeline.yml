@@ -34,7 +34,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic Step — list folder structure
+      # ✅ Diagnostic Step — folder structure
       - name: Diagnostic – Show folder structure
         run: |
           echo "=== Current Working Directory ==="
@@ -53,7 +53,7 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Run Checkov security scan — SARIF output for GitHub Security
+      # ✅ Checkov Scan (SARIF)
       - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
@@ -63,25 +63,33 @@ jobs:
           output_format: sarif
           output_file_path: results.sarif
 
-      # ✅ Upload SARIF report to GitHub Security tab
+      # ✅ Upload SARIF report to Security tab
       - name: Upload SARIF results
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 
-      # ✅ Generate Checkov HTML Report
-      - name: Generate Checkov HTML Report
+      # ✅ Generate Checkov JSON Report
+      - name: Generate Checkov JSON Report
         run: |
-          echo "🧮 Generating Checkov HTML report..."
+          echo "🧮 Generating Checkov JSON report..."
           docker run --rm \
             -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
             -d ${{ env.TF_ROOT_DIR }}/infrastructure \
             --framework terraform \
-            --output html \
-            --output-file-path checkov_report.html
+            --output json \
+            --output-file-path checkov_report.json
         working-directory: ${{ github.workspace }}
 
-      # ✅ Upload HTML Report as Workflow Artifact
+      # ✅ Convert Checkov JSON → Simple HTML
+      - name: Convert Checkov JSON to HTML
+        run: |
+          echo "<html><head><title>Checkov Report</title></head><body><h2>Checkov Terraform Security Scan</h2><pre>" > checkov_report.html
+          cat checkov_report.json | jq '.' >> checkov_report.html
+          echo "</pre></body></html>" >> checkov_report.html
+        working-directory: ${{ github.workspace }}
+
+      # ✅ Upload HTML Report as Artifact
       - name: Upload Checkov HTML Report
         uses: actions/upload-artifact@v4
         with:
@@ -95,16 +103,41 @@ jobs:
           chmod +x opa
           sudo mv opa /usr/local/bin/
 
-      # ✅ Run OPA policies (non-blocking)
+      # ✅ Run OPA and export result
       - name: Run OPA Policies
         run: |
           terraform show -json > plan.json || true
-          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" || true
+          echo "⚙️ Evaluating OPA policies..."
+          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" \
+            --format=json > opa_result.json || true
 
-      # ✅ Print completion summary
-      - name: Print Checkov Summary
+          echo "<html><head><title>OPA Policy Report</title></head><body><h2>OPA Policy Violations</h2><pre>" > opa_report.html
+          cat opa_result.json | jq '.' >> opa_report.html
+          echo "</pre></body></html>" >> opa_report.html
+
+      # ✅ Combine Checkov + OPA into Unified Dashboard
+      - name: Combine Reports into Unified Dashboard
         run: |
-          echo "✅ Terraform + Security checks completed successfully"
-          echo "📄 HTML Report available under 'Artifacts > checkov-html-report'"
-          echo "📊 SARIF report uploaded to Security > Code scanning alerts"
+          echo "🧠 Combining Checkov + OPA reports into one HTML dashboard..."
+          echo "<html><head><title>Unified Compliance Dashboard</title></head><body>" > compliance_dashboard.html
+          echo "<h1>Enterprise DevSecOps Compliance Dashboard</h1>" >> compliance_dashboard.html
+          echo "<h2>✅ Checkov Infrastructure Scan</h2>" >> compliance_dashboard.html
+          cat checkov_report.html >> compliance_dashboard.html
+          echo "<hr><h2>🧠 OPA Policy Validation</h2>" >> compliance_dashboard.html
+          cat opa_report.html >> compliance_dashboard.html
+          echo "</body></html>" >> compliance_dashboard.html
+
+      # ✅ Upload Unified Dashboard
+      - name: Upload Unified Compliance Dashboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-dashboard
+          path: ${{ github.workspace }}/compliance_dashboard.html
+
+      # ✅ Final Summary
+      - name: Print Summary
+        run: |
+          echo "✅ Terraform + Security checks completed"
+          echo "📊 Compliance Dashboard: Artifacts → compliance-dashboard.html"
+          echo "📄 SARIF Report: Security → Code scanning alerts"
 
