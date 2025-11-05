@@ -34,7 +34,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic Step — folder structure
+      # ✅ Diagnostic – Show folder structure
       - name: Diagnostic – Show folder structure
         run: |
           echo "=== Current Working Directory ==="
@@ -42,6 +42,17 @@ jobs:
           echo "=== Folder Tree ==="
           ls -R ./${{ env.TF_ROOT_DIR }}
         working-directory: ${{ github.workspace }}
+
+      # ✅ Pre-check: Verify Terraform directory exists
+      - name: Validate Terraform Path
+        run: |
+          TARGET_PATH="${{ env.TF_ROOT_DIR }}/infrastructure/aks"
+          echo "🔍 Checking for path: $TARGET_PATH"
+          if [ ! -d "$TARGET_PATH" ]; then
+            echo "❌ ERROR: Terraform directory not found at $TARGET_PATH"
+            exit 1
+          fi
+          echo "✅ Terraform path exists: $TARGET_PATH"
 
       # ✅ Terraform Init (no backend)
       - name: Terraform Init (No Backend)
@@ -57,7 +68,7 @@ jobs:
       - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
-          directory: ${{ env.TF_ROOT_DIR }}/infrastructure
+          directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
           framework: terraform
           soft_fail: true
           output_format: sarif
@@ -75,21 +86,49 @@ jobs:
           echo "🧮 Generating Checkov JSON report..."
           docker run --rm \
             -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
-            -d ${{ env.TF_ROOT_DIR }}/infrastructure \
+            -d ${{ env.TF_ROOT_DIR }}/infrastructure/aks \
             --framework terraform \
             --output json \
             --output-file-path checkov_report.json
         working-directory: ${{ github.workspace }}
 
-      # ✅ Convert Checkov JSON → Simple HTML
-      - name: Convert Checkov JSON to HTML
+      # ✅ Convert JSON → Enhanced HTML with visual summary
+      - name: Convert Checkov JSON to Enhanced HTML
         run: |
-          echo "<html><head><title>Checkov Report</title></head><body><h2>Checkov Terraform Security Scan</h2><pre>" > checkov_report.html
+          echo "🧱 Building enhanced compliance HTML..."
+          TOTAL=$(jq '.summary.total' checkov_report.json)
+          PASSED=$(jq '.summary.passed' checkov_report.json)
+          FAILED=$(jq '.summary.failed' checkov_report.json)
+          SKIPPED=$(jq '.summary.skipped' checkov_report.json)
+
+          echo "<html><head><title>Checkov Terraform Compliance Report</title>
+          <style>
+            body { font-family: Arial; background:#f8f9fa; margin:30px; }
+            table { border-collapse: collapse; width: 60%; margin-bottom:20px; }
+            th, td { border: 1px solid #ccc; text-align: left; padding: 8px; }
+            th { background-color: #343a40; color: white; }
+            .passed { color: green; font-weight: bold; }
+            .failed { color: red; font-weight: bold; }
+            .skipped { color: orange; font-weight: bold; }
+            pre { background:#fff; border:1px solid #ccc; padding:10px; border-radius:6px; }
+          </style>
+          </head><body>" > checkov_report.html
+
+          echo "<h1>Checkov Terraform Compliance Summary</h1>
+          <table>
+            <tr><th>Status</th><th>Count</th></tr>
+            <tr><td class='passed'>✅ Passed</td><td>$PASSED</td></tr>
+            <tr><td class='failed'>❌ Failed</td><td>$FAILED</td></tr>
+            <tr><td class='skipped'>⚠️ Skipped</td><td>$SKIPPED</td></tr>
+            <tr><td><b>Total</b></td><td><b>$TOTAL</b></td></tr>
+          </table>
+          <h2>Full JSON Report</h2><pre>" >> checkov_report.html
+
           cat checkov_report.json | jq '.' >> checkov_report.html
           echo "</pre></body></html>" >> checkov_report.html
         working-directory: ${{ github.workspace }}
 
-      # ✅ Upload HTML Report as Artifact
+      # ✅ Upload Checkov HTML Report
       - name: Upload Checkov HTML Report
         uses: actions/upload-artifact@v4
         with:
@@ -103,7 +142,7 @@ jobs:
           chmod +x opa
           sudo mv opa /usr/local/bin/
 
-      # ✅ Run OPA and export result
+      # ✅ Run OPA Policy Evaluation
       - name: Run OPA Policies
         run: |
           terraform show -json > plan.json || true
@@ -115,29 +154,29 @@ jobs:
           cat opa_result.json | jq '.' >> opa_report.html
           echo "</pre></body></html>" >> opa_report.html
 
-      # ✅ Combine Checkov + OPA into Unified Dashboard
+      # ✅ Combine Checkov + OPA Reports into Unified Dashboard
       - name: Combine Reports into Unified Dashboard
         run: |
-          echo "🧠 Combining Checkov + OPA reports into one HTML dashboard..."
+          echo "🧠 Combining Checkov + OPA reports into unified dashboard..."
           echo "<html><head><title>Unified Compliance Dashboard</title></head><body>" > compliance_dashboard.html
-          echo "<h1>Enterprise DevSecOps Compliance Dashboard</h1>" >> compliance_dashboard.html
+          echo "<h1>🌐 Enterprise DevSecOps Compliance Dashboard</h1>" >> compliance_dashboard.html
           echo "<h2>✅ Checkov Infrastructure Scan</h2>" >> compliance_dashboard.html
           cat checkov_report.html >> compliance_dashboard.html
           echo "<hr><h2>🧠 OPA Policy Validation</h2>" >> compliance_dashboard.html
           cat opa_report.html >> compliance_dashboard.html
           echo "</body></html>" >> compliance_dashboard.html
 
-      # ✅ Upload Unified Dashboard
+      # ✅ Upload Unified Compliance Dashboard
       - name: Upload Unified Compliance Dashboard
         uses: actions/upload-artifact@v4
         with:
           name: compliance-dashboard
           path: ${{ github.workspace }}/compliance_dashboard.html
 
-      # ✅ Final Summary
+      # ✅ Print Summary
       - name: Print Summary
         run: |
-          echo "✅ Terraform + Security checks completed"
+          echo "✅ Terraform + Security checks completed successfully"
           echo "📊 Compliance Dashboard: Artifacts → compliance-dashboard.html"
-          echo "📄 SARIF Report: Security → Code scanning alerts"
+          echo "📄 SARIF Report uploaded to Security → Code scanning alerts"
 
