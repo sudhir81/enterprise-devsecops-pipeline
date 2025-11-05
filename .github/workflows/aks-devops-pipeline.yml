@@ -34,29 +34,28 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic
+      # ✅ Diagnostic check
       - name: Diagnostic – Show folder structure
         run: |
-          echo "=== Current Working Directory ==="
+          echo "=== Working Directory ==="
           pwd
           echo "=== Folder Tree ==="
           ls -R ./${{ env.TF_ROOT_DIR }}
         working-directory: ${{ github.workspace }}
 
-      # ✅ Validate Terraform path exists
+      # ✅ Validate Terraform directory path
       - name: Validate Terraform Path
         run: |
           TARGET_PATH="${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks"
-          echo "🔍 Checking for path: $TARGET_PATH"
+          echo "🔍 Checking path: $TARGET_PATH"
           if [ ! -d "$TARGET_PATH" ]; then
-            echo "❌ ERROR: Terraform directory not found at $TARGET_PATH"
-            echo "Available folders:"
+            echo "❌ ERROR: Missing Terraform directory at $TARGET_PATH"
             ls -R ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}
             exit 1
           fi
-          echo "✅ Terraform path exists: $TARGET_PATH"
+          echo "✅ Terraform path confirmed: $TARGET_PATH"
 
-      # ✅ Terraform Init + Validate
+      # ✅ Terraform Init & Validate
       - name: Terraform Init (No Backend)
         run: terraform init -backend=false
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
@@ -65,7 +64,7 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Checkov Scan (SARIF)
+      # ✅ Checkov scan (SARIF)
       - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
@@ -80,8 +79,9 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Generate Checkov JSON Report
+      # ✅ Generate Checkov JSON report
       - name: Generate Checkov JSON Report
+        continue-on-error: true
         run: |
           echo "🧮 Generating Checkov JSON report..."
           docker run --rm \
@@ -92,34 +92,37 @@ jobs:
             --output-file-path /tf/checkov_report.json
         working-directory: ${{ github.workspace }}
 
-      # ✅ Build Enhanced HTML (Summary + Pie Chart)
+      # ✅ Build Enhanced HTML with pie chart summary
       - name: Build Enhanced HTML Report
+        continue-on-error: true
         run: |
           echo "🎨 Building enhanced HTML dashboard..."
-          TOTAL=$(jq '.summary.total' checkov_report.json)
-          PASSED=$(jq '.summary.passed' checkov_report.json)
-          FAILED=$(jq '.summary.failed' checkov_report.json)
-          SKIPPED=$(jq '.summary.skipped' checkov_report.json)
 
-          echo "<html><head><title>Checkov Terraform Compliance Report</title>
+          TOTAL=$(jq -r '.summary.total // (.results.passed_checks | length + .results.failed_checks | length)' checkov_report.json)
+          PASSED=$(jq -r '.summary.passed // (.results.passed_checks | length)' checkov_report.json)
+          FAILED=$(jq -r '.summary.failed // (.results.failed_checks | length)' checkov_report.json)
+          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
+          TOTAL=${TOTAL:-0}; PASSED=${PASSED:-0}; FAILED=${FAILED:-0}; SKIPPED=${SKIPPED:-0}
+
+          echo "<html><head><title>Checkov Compliance Report</title>
           <style>
             body { font-family: Arial; background:#f8f9fa; margin:30px; }
             h1 { color:#222; }
-            table { border-collapse: collapse; width: 60%; margin-bottom:20px; }
-            th, td { border: 1px solid #ccc; text-align: left; padding: 8px; }
-            th { background-color: #343a40; color: white; }
-            .passed { color: green; font-weight: bold; }
-            .failed { color: red; font-weight: bold; }
-            .skipped { color: orange; font-weight: bold; }
-            .pie { width:200px; height:200px; border-radius:50%; margin:20px 0;
-                   background:conic-gradient(green 0% calc(${PASSED}/$TOTAL*100%), 
-                                             red calc(${PASSED}/$TOTAL*100%) calc((${PASSED}+${FAILED})/$TOTAL*100%), 
-                                             orange calc((${PASSED}+${FAILED})/$TOTAL*100%) 100%); }
+            table { border-collapse: collapse; width:60%; margin-bottom:20px; }
+            th, td { border:1px solid #ccc; padding:8px; text-align:left; }
+            th { background:#343a40; color:#fff; }
+            .passed { color:green; font-weight:bold; }
+            .failed { color:red; font-weight:bold; }
+            .skipped { color:orange; font-weight:bold; }
+            .pie { width:200px; height:200px; border-radius:50%;
+                   background:conic-gradient(green 0% calc(${PASSED}/${TOTAL}*100%),
+                                             red calc(${PASSED}/${TOTAL}*100%) calc((${PASSED}+${FAILED})/${TOTAL}*100%),
+                                             orange calc((${PASSED}+${FAILED})/${TOTAL}*100%) 100%);
+                   margin:20px 0; }
             pre { background:#fff; border:1px solid #ccc; padding:10px; border-radius:6px; overflow:auto; }
           </style>
-          </head><body>" > checkov_report.html
-
-          echo "<h1>✅ Terraform Compliance Summary</h1>
+          </head><body>
+          <h1>✅ Checkov Terraform Compliance Summary</h1>
           <div class='pie'></div>
           <table>
             <tr><th>Status</th><th>Count</th></tr>
@@ -128,9 +131,9 @@ jobs:
             <tr><td class='skipped'>⚠️ Skipped</td><td>$SKIPPED</td></tr>
             <tr><td><b>Total</b></td><td><b>$TOTAL</b></td></tr>
           </table>
-          <h2>Full JSON Report</h2><pre>" >> checkov_report.html
+          <h2>Full JSON Report</h2><pre>" > checkov_report.html
 
-          cat checkov_report.json | jq '.' >> checkov_report.html
+          jq '.' checkov_report.json >> checkov_report.html
           echo "</pre></body></html>" >> checkov_report.html
         working-directory: ${{ github.workspace }}
 
@@ -147,29 +150,48 @@ jobs:
           chmod +x opa
           sudo mv opa /usr/local/bin/
 
-      # ✅ Run OPA Policy Evaluation
+      # ✅ Run OPA policies + generate JSON
       - name: Run OPA Policies
+        continue-on-error: true
         run: |
           terraform show -json > plan.json || true
-          echo "⚙️ Evaluating OPA policies..."
-          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" \
-            --format=json > opa_result.json || true
+          echo "⚙️ Running OPA policy validation..."
+          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" --format=json > opa_result.json || true
 
-          echo "<html><head><title>OPA Policy Report</title></head><body><h2>OPA Policy Violations</h2><pre>" > opa_report.html
-          cat opa_result.json | jq '.' >> opa_report.html
+          TOTAL=$(jq '.result[0].expressions[0].value | length' opa_result.json)
+          TOTAL=${TOTAL:-0}
+
+          echo "<html><head><title>OPA Policy Report</title>
+          <style>body{font-family:Arial;background:#f8f9fa;margin:30px;}
+          h1{color:#222;}pre{background:#fff;border:1px solid #ccc;padding:10px;border-radius:6px;}
+          .passed{color:green;font-weight:bold;} .failed{color:red;font-weight:bold;}
+          </style></head><body>
+          <h1>🧠 OPA Policy Validation Summary</h1>
+          <p>Total Violations: <b class='failed'>$TOTAL</b></p>
+          <h2>Details</h2><pre>" > opa_report.html
+          jq '.' opa_result.json >> opa_report.html
           echo "</pre></body></html>" >> opa_report.html
+        working-directory: ${{ github.workspace }}
 
-      # ✅ Combine Reports into Unified Dashboard
+      # ✅ Combine both reports into unified dashboard
       - name: Combine Reports into Unified Dashboard
         run: |
-          echo "🧠 Combining Checkov + OPA reports..."
-          echo "<html><head><title>Unified Compliance Dashboard</title></head><body>" > compliance_dashboard.html
-          echo "<h1>🌐 Enterprise DevSecOps Compliance Dashboard</h1>" >> compliance_dashboard.html
-          echo "<h2>✅ Checkov Infrastructure Scan</h2>" >> compliance_dashboard.html
-          cat checkov_report.html >> compliance_dashboard.html
-          echo "<hr><h2>🧠 OPA Policy Validation</h2>" >> compliance_dashboard.html
-          cat opa_report.html >> compliance_dashboard.html
-          echo "</body></html>" >> compliance_dashboard.html
+          echo "🧱 Building Unified Compliance Dashboard..."
+          echo "<html><head><title>Unified DevSecOps Compliance Dashboard</title>
+          <style>
+            body{font-family:Arial;background:#f4f6f9;margin:20px;}
+            h1{text-align:center;}
+            iframe{width:48%;height:700px;border:1px solid #ccc;border-radius:8px;}
+            .split{display:flex;justify-content:space-between;gap:2%;}
+          </style>
+          </head><body>
+          <h1>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
+          <div class='split'>
+            <iframe src='checkov_report.html'></iframe>
+            <iframe src='opa_report.html'></iframe>
+          </div>
+          </body></html>" > compliance_dashboard.html
+        working-directory: ${{ github.workspace }}
 
       - name: Upload Unified Compliance Dashboard
         uses: actions/upload-artifact@v4
@@ -180,6 +202,6 @@ jobs:
       - name: Print Summary
         run: |
           echo "✅ Terraform + Security checks completed successfully"
-          echo "📊 Dashboard available under Artifacts → compliance-dashboard.html"
+          echo "📊 Compliance Dashboard ready under Artifacts → compliance-dashboard.html"
           echo "📄 SARIF report uploaded to Security → Code scanning alerts"
 
