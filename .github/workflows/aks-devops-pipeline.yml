@@ -55,18 +55,18 @@ jobs:
         run: |
           terraform init -backend=false \
             -plugin-dir=~/.terraform.d/plugin-cache
-        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
+        working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
       # ✅ Terraform Validate
       - name: Terraform Validate
         run: terraform validate
-        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
+        working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
       # ✅ Run Checkov security scan — soft fail so pipeline continues
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@v12
         with:
-          directory: ${{ env.TF_ROOT_DIR }}/infrastructure
+          directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure
           framework: terraform
           soft_fail: true         # ✅ Don’t fail build on findings
           output_format: sarif
@@ -89,7 +89,7 @@ jobs:
       - name: Run OPA Policies
         run: |
           terraform show -json > plan.json || true
-          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" || true
+          opa eval --data ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" || true
 
       # ✅ Print post-scan summary
       - name: Print Checkov Summary
