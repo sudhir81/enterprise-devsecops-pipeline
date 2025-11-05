@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# ✅ Required for uploading SARIF to GitHub Security
+permissions:
+  contents: read
+  security-events: write
+
 env:
   TF_VERSION: 1.13.3
   TF_ROOT_DIR: project4-enterprise-aks-devops-platform
@@ -20,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ✅ Checkout repo
+      # ✅ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -30,7 +35,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic Step – Show repo structure
+      # ✅ Diagnostic – Show structure
       - name: 🔍 Debug Folder Structure
         run: |
           echo "=== Current Working Directory ==="
@@ -39,7 +44,7 @@ jobs:
           ls -R ./${{ env.TF_ROOT_DIR }}
         working-directory: ${{ github.workspace }}
 
-      # ✅ Terraform Init (no backend, no cache)
+      # ✅ Terraform Init (No Backend)
       - name: Terraform Init (No Backend)
         run: terraform init -backend=false
         working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
@@ -49,13 +54,13 @@ jobs:
         run: terraform validate
         working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Run Checkov security scan — soft fail so pipeline continues
+      # ✅ Run Checkov security scan (soft fail so pipeline continues)
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure
           framework: terraform
-          soft_fail: true         # ✅ Don’t fail build on findings
+          soft_fail: true
           output_format: sarif
           output_file_path: results.sarif
 
@@ -72,11 +77,12 @@ jobs:
           chmod +x opa
           sudo mv opa /usr/local/bin/
 
-      # ✅ Run OPA Policies (non-blocking)
+      # ✅ Run OPA policies (non-blocking)
       - name: Run OPA Policies
         run: |
           terraform show -json > plan.json || true
-          opa eval --data ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" || true
+          opa eval --data ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/policies/opa \
+                   --input plan.json "data.terraform.policy.deny" || true
 
       # ✅ Print post-scan summary
       - name: Print Checkov Summary
