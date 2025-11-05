@@ -36,12 +36,10 @@ jobs:
 
       # ✅ Diagnostic
       - name: Diagnostic – Show folder structure
-        run: |
-          echo "=== Folder Tree ==="
-          ls -R ./${{ env.TF_ROOT_DIR }}
+        run: ls -R ./${{ env.TF_ROOT_DIR }}
 
       # ✅ Terraform Init + Validate
-      - name: Terraform Init (No Backend)
+      - name: Terraform Init (no backend)
         run: terraform init -backend=false
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
@@ -49,7 +47,7 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Checkov SARIF report for GitHub Security
+      # ✅ Checkov SARIF for GitHub Code Scanning
       - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
@@ -64,7 +62,7 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Generate Checkov JSON report (soft fail, always continues)
+      # ✅ Generate Checkov JSON Report (soft fail)
       - name: Generate Checkov JSON Report
         continue-on-error: true
         run: |
@@ -77,11 +75,11 @@ jobs:
             --output-file-path /tf/checkov_report.json || true
         working-directory: ${{ github.workspace }}
 
-      # ✅ Install and Run OPA Policy Validation
+      # ✅ Install and Run OPA Validation
       - name: Run OPA Policy Validation
         continue-on-error: true
         run: |
-          echo "🔍 Installing and running OPA..."
+          echo "🔍 Installing OPA and validating policies..."
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa && sudo mv opa /usr/local/bin/
           terraform show -json > plan.json || true
@@ -89,23 +87,24 @@ jobs:
             "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      # ✅ Build Unified Inline Compliance Dashboard
-      - name: Build Unified Inline Compliance Dashboard
+      # ✅ Build Unified Compliance Dashboard (dual path)
+      - name: Build Unified Compliance Dashboard
         continue-on-error: true
         shell: bash
         run: |
           echo "🧱 Building unified compliance dashboard..."
+          ROOT_DIR="/home/runner/work/${{ github.event.repository.name }}"
           WORK_DIR="${{ github.workspace }}"
           DASHBOARD_PATH="${WORK_DIR}/compliance_dashboard.html"
 
-          echo "📂 Working directory: $WORK_DIR"
-          echo "📄 Dashboard path: $DASHBOARD_PATH"
+          echo "📂 WORK_DIR: $WORK_DIR"
+          echo "📂 ROOT_DIR: $ROOT_DIR"
+          echo "📄 Target dashboard path: $DASHBOARD_PATH"
 
-          # Safety checks
+          mkdir -p "$WORK_DIR" "$ROOT_DIR"
+
           [ -s "${WORK_DIR}/checkov_report.json" ] || echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > "${WORK_DIR}/checkov_report.json"
           [ -s "${WORK_DIR}/opa_result.json" ] || echo '{"result":[{"expressions":[{"value":[]}]}]}' > "${WORK_DIR}/opa_result.json"
-
-          cd "${WORK_DIR}"
 
           PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
           FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
@@ -124,72 +123,46 @@ jobs:
           else GRADE="F"; BAR_COLOR="red"; fi
 
           cat <<EOF > "${DASHBOARD_PATH}"
-          <html><head><title>Unified DevSecOps Compliance Dashboard</title>
-          <style>
-            body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
-            h1{text-align:center;color:#1a237e;}
-            h2{color:#0d47a1;margin-top:40px;}
-            table{border-collapse:collapse;width:70%;margin:auto;margin-bottom:20px;}
-            th,td{border:1px solid #ccc;padding:8px;text-align:center;}
-            th{background:#283593;color:white;}
-            .passed{color:green;font-weight:bold;}
-            .failed{color:red;font-weight:bold;}
-            .skipped{color:orange;font-weight:bold;}
-            .section{padding:20px;background:#fff;border-radius:10px;box-shadow:0 0 8px rgba(0,0,0,0.1);margin:20px auto;width:80%;}
-            .bar{width:60%;height:30px;border-radius:10px;margin:20px auto;background:#ddd;}
-            .fill{height:100%;border-radius:10px;text-align:center;color:white;font-weight:bold;}
-            pre{background:#f8f9fa;border:1px solid #ccc;padding:10px;border-radius:6px;overflow:auto;max-height:500px;}
-          </style>
-          </head><body>
-          <h1>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
-
-          <div class='section'>
-            <h2>🧾 Executive Summary</h2>
-            <table>
-              <tr><th>✅ Passed</th><th>❌ Failed</th><th>⚠️ Skipped</th><th>🧠 OPA Violations</th><th>📈 Compliance %</th><th>🏅 Grade</th></tr>
-              <tr>
-                <td class='passed'>${PASSED}</td>
-                <td class='failed'>${FAILED}</td>
-                <td class='skipped'>${SKIPPED}</td>
-                <td class='failed'>${OPA_VIOLATIONS}</td>
-                <td><b>${COMPLIANCE}%</b></td>
-                <td><b>${GRADE}</b></td>
-              </tr>
-            </table>
-            <div class='bar'><div class='fill' style='width:${COMPLIANCE}%;background:${BAR_COLOR};'>${COMPLIANCE}%</div></div>
+          <html><head><title>Unified DevSecOps Compliance Dashboard</title></head>
+          <body style='font-family:Arial,Helvetica,sans-serif;background:#f9fafc;margin:30px;'>
+          <h1 style='text-align:center;color:#1a237e;'>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
+          <table border='1' cellspacing='0' cellpadding='6' style='border-collapse:collapse;width:75%;margin:auto;'>
+            <tr><th>✅ Passed</th><th>❌ Failed</th><th>⚠️ Skipped</th><th>🧠 OPA Violations</th><th>📈 Compliance %</th><th>🏅 Grade</th></tr>
+            <tr>
+              <td style='color:green;'>${PASSED}</td>
+              <td style='color:red;'>${FAILED}</td>
+              <td style='color:orange;'>${SKIPPED}</td>
+              <td style='color:red;'>${OPA_VIOLATIONS}</td>
+              <td><b>${COMPLIANCE}%</b></td>
+              <td><b>${GRADE}</b></td>
+            </tr>
+          </table>
+          <div style='width:60%;margin:auto;margin-top:20px;height:20px;background:#ddd;border-radius:10px;'>
+            <div style='height:100%;width:${COMPLIANCE}%;background:${BAR_COLOR};border-radius:10px;'></div>
           </div>
-
-          <div class='section'>
-            <h2>✅ Checkov Terraform Security Summary</h2>
-            <pre>$(jq '.' checkov_report.json)</pre>
-          </div>
-
-          <div class='section'>
-            <h2>🧠 OPA Policy Validation Summary</h2>
-            <p>Total Violations: <b class='failed'>${OPA_VIOLATIONS}</b></p>
-            <pre>$(jq '.' opa_result.json)</pre>
-          </div>
-
-          <div style='text-align:center;color:#555;margin-top:30px;'>
-            <hr><p>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
-          </div>
+          <p style='text-align:center;color:#555;margin-top:30px;'>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
           </body></html>
           EOF
 
-          echo "✅ Dashboard generated successfully at: ${DASHBOARD_PATH}"
-          ls -lh "${DASHBOARD_PATH}"
+          cp "${DASHBOARD_PATH}" "${ROOT_DIR}/compliance_dashboard.html" || true
+          echo "✅ Dashboard created."
+          echo "📋 File locations:"
+          ls -lh "${WORK_DIR}/compliance_dashboard.html" || echo "⚠️ Missing in WORK_DIR"
+          ls -lh "${ROOT_DIR}/compliance_dashboard.html" || echo "⚠️ Missing in ROOT_DIR"
 
-      # ✅ Upload Dashboard Artifact (guaranteed path)
+      # ✅ Upload dashboard from either location
       - name: Upload Unified Inline Dashboard
         uses: actions/upload-artifact@v4
         with:
           name: compliance-dashboard
-          path: ${{ github.workspace }}/compliance_dashboard.html
-          if-no-files-found: error
+          path: |
+            ${{ github.workspace }}/compliance_dashboard.html
+            /home/runner/work/${{ github.event.repository.name }}/compliance_dashboard.html
+          if-no-files-found: warn
 
-      # ✅ Final Log Summary
+      # ✅ Summary Log
       - name: Print Summary
         run: |
-          echo "✅ Unified Compliance Dashboard successfully generated and uploaded!"
-          echo "📄 Download it from 'Artifacts > compliance-dashboard' on this workflow run."
+          echo "✅ Unified Compliance Dashboard generated and uploaded!"
+          echo "📄 Download artifact: compliance-dashboard"
 
