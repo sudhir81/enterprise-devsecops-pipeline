@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ✅ Checkout repo
+      # ✅ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -49,7 +49,7 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Checkov SARIF
+      # ✅ Checkov SARIF output
       - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
@@ -64,11 +64,11 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Generate Checkov JSON
+      # ✅ Generate Checkov JSON report
       - name: Generate Checkov JSON Report
         continue-on-error: true
         run: |
-          echo "🧮 Generating Checkov JSON..."
+          echo "🧮 Generating Checkov JSON report..."
           docker run --rm \
             -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
             -d /tf/${{ env.TF_ROOT_DIR }}/infrastructure/aks \
@@ -87,20 +87,24 @@ jobs:
           opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      # ✅ Build Unified Inline Compliance Dashboard (Final)
+      # ✅ Build Unified Inline Compliance Dashboard (with fixed paths)
       - name: Build Unified Inline Compliance Dashboard
         continue-on-error: true
         shell: bash
         run: |
           echo "🧱 Building single unified compliance dashboard..."
+          WORK_DIR="${{ github.workspace }}"
+          DASHBOARD_PATH="${WORK_DIR}/compliance_dashboard.html"
 
           # --- Safety guards ---
-          if [ ! -s checkov_report.json ]; then
-            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
+          if [ ! -s "${WORK_DIR}/checkov_report.json" ]; then
+            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > "${WORK_DIR}/checkov_report.json"
           fi
-          if [ ! -s opa_result.json ]; then
-            echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
+          if [ ! -s "${WORK_DIR}/opa_result.json" ]; then
+            echo '{"result":[{"expressions":[{"value":[]}]}]}' > "${WORK_DIR}/opa_result.json"
           fi
+
+          cd "${WORK_DIR}"
 
           # --- Extract metrics ---
           PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
@@ -119,7 +123,9 @@ jobs:
           elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; BAR_COLOR="orangered";
           else GRADE="F"; BAR_COLOR="red"; fi
 
-          echo "<html><head><title>Unified DevSecOps Compliance Dashboard</title>
+          # --- Generate HTML ---
+          cat <<EOF > "${DASHBOARD_PATH}"
+          <html><head><title>Unified DevSecOps Compliance Dashboard</title>
           <style>
             body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
             h1{text-align:center;color:#1a237e;}
@@ -158,11 +164,7 @@ jobs:
 
           <div class='section' style='text-align:center;'>
             <h2>📊 Overall Compliance</h2>
-            <div class='bar'>
-              <div class='fill' style='width:${COMPLIANCE}%;background:${BAR_COLOR};'>
-                ${COMPLIANCE}%
-              </div>
-            </div>
+            <div class='bar'><div class='fill' style='width:${COMPLIANCE}%;background:${BAR_COLOR};'>${COMPLIANCE}%</div></div>
             <div class='grade'>Compliance Grade: <b>${GRADE}</b></div>
           </div>
 
@@ -190,18 +192,18 @@ jobs:
           <div style='text-align:center;color:#555;margin-top:30px;'>
             <hr><p>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
           </div>
+          </body></html>
+          EOF
 
-          </body></html>" > compliance_dashboard.html
+          echo "✅ Dashboard generated at: ${DASHBOARD_PATH}"
+          ls -lh "${DASHBOARD_PATH}"
 
-          echo "✅ compliance_dashboard.html generated successfully"
-        working-directory: ${{ github.workspace }}
-
-      # ✅ Upload artifact
+      # ✅ Upload artifact safely
       - name: Upload Unified Inline Dashboard
         uses: actions/upload-artifact@v4
         with:
           name: compliance-dashboard
-          path: ${{ github.workspace }}/compliance_dashboard.html
+          path: compliance_dashboard.html
 
       - name: Print Summary
         run: |
