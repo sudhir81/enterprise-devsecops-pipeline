@@ -1,15 +1,17 @@
 package terraform.policy
 
-deny[msg] {
-  input.resource_changes[_].type == "azurerm_container_registry"
-  registry := input.resource_changes[_].change.after
-  registry.admin_enabled == true
+deny[msg] if {
+  some r
+  r := input.resource_changes[_]
+  r.type == "azurerm_container_registry"
+  r.change.after.admin_enabled == true
   msg := "❌ ACR admin account must be disabled (admin_enabled = false)"
 }
 
-deny[msg] {
-  input.resource_changes[_].type == "azurerm_container_registry"
-  registry := input.resource_changes[_].change.after
-  not registry.public_network_access == "Disabled"
+deny[msg] if {
+  some r
+  r := input.resource_changes[_]
+  r.type == "azurerm_container_registry"
+  not r.change.after.public_network_access == "Disabled"
   msg := "❌ ACR must have public network access disabled (public_network_access = 'Disabled')"
 }
