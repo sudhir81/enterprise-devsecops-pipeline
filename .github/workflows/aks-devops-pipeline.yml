@@ -1,93 +1,4 @@
-name: 🚀 Enterprise AKS + DevOps Platform CI/CD
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
-  security-events: write
-
-env:
-  TF_VERSION: 1.13.3
-  TF_ROOT_DIR: project4-enterprise-aks-devops-platform
-  IMAGE_NAME: sampleapp
-  ACR_NAME: devopsacr001
-  AKS_CLUSTER_NAME: devops-aks
-  AKS_RESOURCE_GROUP: rg-devsecops-dev
-
-jobs:
-  terraform-validate:
-    name: 🧩 Terraform Validate + Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-      # ✅ Checkout
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ✅ Setup Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      # ✅ Diagnostic
-      - name: Diagnostic – Show folder structure
-        run: |
-          echo "=== Folder Tree ==="
-          ls -R ./${{ env.TF_ROOT_DIR }}
-
-      # ✅ Terraform Init + Validate
-      - name: Terraform Init (No Backend)
-        run: terraform init -backend=false
-        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
-
-      - name: Terraform Validate
-        run: terraform validate
-        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
-
-      # ✅ Checkov SARIF
-      - name: Checkov Scan (SARIF)
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
-          framework: terraform
-          soft_fail: true
-          output_format: sarif
-          output_file_path: results.sarif
-
-      - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
-
-      # ✅ Generate Checkov JSON
-      - name: Generate Checkov JSON Report
-        continue-on-error: true
-        run: |
-          echo "🧮 Generating Checkov JSON..."
-          docker run --rm \
-            -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
-            -d /tf/${{ env.TF_ROOT_DIR }}/infrastructure/aks \
-            --framework terraform \
-            --output json \
-            --output-file-path /tf/checkov_report.json
-        working-directory: ${{ github.workspace }}
-
-      # ✅ Install OPA and Run Policies
-      - name: Run OPA Policy Validation
-        continue-on-error: true
-        run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
-          chmod +x opa && sudo mv opa /usr/local/bin/
-          terraform show -json > plan.json || true
-          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" --format=json > opa_result.json || true
-        working-directory: ${{ github.workspace }}
-
-      # ✅ Build Unified Inline Compliance Dashboard (SAFE)
+      # ✅ Build Unified Inline Compliance Dashboard (FIXED)
       - name: Build Unified Inline Compliance Dashboard
         continue-on-error: true
         shell: bash
@@ -116,13 +27,13 @@ jobs:
           OPA_VIOLATIONS=${OPA_VIOLATIONS:-0}
 
           COMPLIANCE=$((100 * PASSED / TOTAL))
-          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"
-          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"
-          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"
-          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"
-          else GRADE="F"; fi
 
-          # --- Generate HTML ---
+          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"; BAR_COLOR="green";
+          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"; BAR_COLOR="limegreen";
+          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"; BAR_COLOR="orange";
+          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; BAR_COLOR="orangered";
+          else GRADE="F"; BAR_COLOR="red"; fi
+
           echo "<html><head><title>Unified DevSecOps Compliance Dashboard</title>
           <style>
             body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
@@ -151,7 +62,7 @@ jobs:
           <div class='section' style='text-align:center;'>
             <h2>📊 Overall Compliance</h2>
             <div class='bar'>
-              <div class='fill' style='width:${COMPLIANCE}%;background:${COMPLIANCE}>=80?\"green\":(${COMPLIANCE}>=60?\"orange\":\"red\");'>
+              <div class='fill' style='width:${COMPLIANCE}%;background:${BAR_COLOR};'>
                 ${COMPLIANCE}%
               </div>
             </div>
@@ -163,10 +74,10 @@ jobs:
             <div class='pie'></div>
             <table>
               <tr><th>Status</th><th>Count</th></tr>
-              <tr><td class='passed'>✅ Passed</td><td>$PASSED</td></tr>
-              <tr><td class='failed'>❌ Failed</td><td>$FAILED</td></tr>
-              <tr><td class='skipped'>⚠️ Skipped</td><td>$SKIPPED</td></tr>
-              <tr><td><b>Total</b></td><td><b>$TOTAL</b></td></tr>
+              <tr><td class='passed'>✅ Passed</td><td>${PASSED}</td></tr>
+              <tr><td class='failed'>❌ Failed</td><td>${FAILED}</td></tr>
+              <tr><td class='skipped'>⚠️ Skipped</td><td>${SKIPPED}</td></tr>
+              <tr><td><b>Total</b></td><td><b>${TOTAL}</b></td></tr>
             </table>
             <h3>Detailed Checkov Results (JSON)</h3>
             <pre>$(jq '.' checkov_report.json)</pre>
@@ -174,7 +85,7 @@ jobs:
 
           <div class='section'>
             <h2>🧠 OPA Policy Validation Summary</h2>
-            <p>Total Violations: <b class='failed'>$OPA_VIOLATIONS</b></p>
+            <p>Total Violations: <b class='failed'>${OPA_VIOLATIONS}</b></p>
             <h3>OPA Evaluation Output (JSON)</h3>
             <pre>$(jq '.' opa_result.json)</pre>
           </div>
@@ -186,17 +97,4 @@ jobs:
           </body></html>" > compliance_dashboard.html
 
           echo "✅ compliance_dashboard.html generated successfully"
-        working-directory: ${{ github.workspace }}
-
-      # ✅ Upload Artifact
-      - name: Upload Unified Inline Dashboard
-        uses: actions/upload-artifact@v4
-        with:
-          name: compliance-dashboard
-          path: ${{ github.workspace }}/compliance_dashboard.html
-
-      - name: Print Summary
-        run: |
-          echo "✅ Unified Inline Dashboard generated successfully!"
-          echo "📄 Download artifact: compliance_dashboard.html"
 
