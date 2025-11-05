@@ -32,10 +32,10 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: 📂 Diagnostic – show folder structure
+      - name: 📂 Diagnostic – Show folder structure
         run: ls -R ./${{ env.TF_ROOT_DIR }}
 
-      - name: 🧱 Terraform Init (no backend)
+      - name: 🧱 Terraform Init
         run: terraform init -backend=false
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
@@ -57,9 +57,7 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # -------------------------------
-      # ✅ FIXED SECTION: Copy Checkov JSON back to workspace
-      # -------------------------------
+      # ✅ Generate JSON Checkov Report (fixed)
       - name: 🧮 Generate Checkov JSON Report
         continue-on-error: true
         run: |
@@ -69,21 +67,16 @@ jobs:
             -d /tf/${{ env.TF_ROOT_DIR }}/infrastructure/aks \
             --framework terraform \
             --output json \
-            --output-file-path /tf/checkov_report.json || true
+            --output-file-path /tf/${{ github.workspace }}/checkov_report.json || true
 
-          echo "📋 Checking for generated Checkov JSON report..."
-          if [ -f checkov_report.json ]; then
-            echo "✅ Found checkov_report.json in workspace."
-          elif [ -f /tf/checkov_report.json ]; then
-            echo "📁 Found report inside container path — copying..."
-            cp /tf/checkov_report.json ./checkov_report.json
+          echo "✅ Verifying report..."
+          if [ -s checkov_report.json ]; then
+            echo "✅ Found report in workspace"
           else
-            echo "⚠️ Report missing, generating dummy JSON."
+            echo "⚠️ Missing report, creating dummy JSON"
             echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
           fi
-
-          echo "🧾 Preview of report:"
-          head -20 checkov_report.json || true
+          head -15 checkov_report.json || true
         working-directory: ${{ github.workspace }}
 
       - name: 🔒 Run OPA Policy Validation
@@ -97,30 +90,30 @@ jobs:
             "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      - name: 🧱 Build Unified Compliance Dashboard
+      # 🧱 Build Advanced Compliance Dashboard
+      - name: 🧱 Build Advanced Compliance Dashboard
         continue-on-error: true
         shell: bash
         run: |
           set +e
+          export LANG=en_US.UTF-8
+          export LC_ALL=en_US.UTF-8
           echo "🧱 Building unified compliance dashboard..."
           sudo apt-get update -y && sudo apt-get install -y jq
 
           WORK_DIR="${{ github.workspace }}"
           DASHBOARD_PATH="${WORK_DIR}/compliance_dashboard.html"
 
-          echo "📂 WORK_DIR: $WORK_DIR"
-
-          # Guard JSONs
           [ -s "${WORK_DIR}/checkov_report.json" ] || echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > "${WORK_DIR}/checkov_report.json"
           [ -s "${WORK_DIR}/opa_result.json" ] || echo '{"result":[{"expressions":[{"value":[]}]}]}' > "${WORK_DIR}/opa_result.json"
 
-          PASSED=$(jq -r '.summary.passed // 0' checkov_report.json 2>/dev/null || echo 0)
-          FAILED=$(jq -r '.summary.failed // 0' checkov_report.json 2>/dev/null || echo 0)
-          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json 2>/dev/null || echo 0)
+          PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
+          FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
+          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
           TOTAL=$((PASSED + FAILED + SKIPPED))
           [ "$TOTAL" -eq 0 ] && TOTAL=1
 
-          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null || echo 0)
+          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json)
           COMPLIANCE=$((100 * PASSED / TOTAL))
 
           if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"; COLOR="green";
@@ -129,33 +122,68 @@ jobs:
           elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; COLOR="orangered";
           else GRADE="F"; COLOR="red"; fi
 
-          echo "📊 Passed=$PASSED, Failed=$FAILED, Skipped=$SKIPPED, OPA=$OPA_VIOLATIONS, Grade=$GRADE"
-
           cat <<EOF > "${DASHBOARD_PATH}"
-          <html><head><title>Unified DevSecOps Compliance Dashboard</title></head>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>Unified DevSecOps Compliance Dashboard</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+          </head>
           <body style='font-family:Arial,Helvetica,sans-serif;background:#f9fafc;margin:30px;'>
-          <h1 style='text-align:center;color:#1a237e;'>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
-          <table border='1' cellspacing='0' cellpadding='6' style='border-collapse:collapse;width:75%;margin:auto;'>
-            <tr><th>✅ Passed</th><th>❌ Failed</th><th>⚠️ Skipped</th><th>🧠 OPA Violations</th><th>📈 Compliance %</th><th>🏅 Grade</th></tr>
-            <tr>
-              <td style='color:green;'>${PASSED}</td>
-              <td style='color:red;'>${FAILED}</td>
-              <td style='color:orange;'>${SKIPPED}</td>
-              <td style='color:red;'>${OPA_VIOLATIONS}</td>
-              <td><b>${COMPLIANCE}%</b></td>
-              <td><b>${GRADE}</b></td>
-            </tr>
-          </table>
-          <div style='width:60%;margin:auto;margin-top:20px;height:20px;background:#ddd;border-radius:10px;'>
-            <div style='height:100%;width:${COMPLIANCE}%;background:${COLOR};border-radius:10px;'></div>
-          </div>
-          <p style='text-align:center;color:#555;margin-top:30px;'>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
+            <h1 style='text-align:center;color:#1a237e;'>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
+
+            <table border='1' cellspacing='0' cellpadding='6' style='border-collapse:collapse;width:75%;margin:auto;'>
+              <tr><th>✅ Passed</th><th>❌ Failed</th><th>⚠️ Skipped</th><th>🧠 OPA Violations</th><th>📈 Compliance %</th><th>🏅 Grade</th></tr>
+              <tr>
+                <td style='color:green;'>${PASSED}</td>
+                <td style='color:red;'>${FAILED}</td>
+                <td style='color:orange;'>${SKIPPED}</td>
+                <td style='color:red;'>${OPA_VIOLATIONS}</td>
+                <td><b>${COMPLIANCE}%</b></td>
+                <td><b>${GRADE}</b></td>
+              </tr>
+            </table>
+
+            <div style='width:300px;margin:auto;margin-top:40px;'>
+              <canvas id="compliancePie"></canvas>
+            </div>
+
+            <div style='text-align:center;margin-top:30px;font-size:18px;'>
+              📊 Compliance Trend:
+              <b style='color:${COLOR};'>
+                $([ "$COMPLIANCE" -ge 60 ] && echo "📈 Improving") || echo "📉 Needs Attention"
+              </b>
+            </div>
+
+            <p style='text-align:center;color:#777;margin-top:40px;'>
+              Generated automatically by <b>Enterprise AKS + DevSecOps CI/CD ✨</b>
+            </p>
+
+            <script>
+              const ctx = document.getElementById('compliancePie');
+              new Chart(ctx, {
+                type: 'pie',
+                data: {
+                  labels: ['Passed', 'Failed', 'Skipped'],
+                  datasets: [{
+                    data: [${PASSED}, ${FAILED}, ${SKIPPED}],
+                    backgroundColor: ['#2ecc71','#e74c3c','#f1c40f']
+                  }]
+                },
+                options: {
+                  plugins: {
+                    legend: { position: 'bottom' },
+                    title: {
+                      display: true,
+                      text: 'Terraform + OPA Compliance Overview'
+                    }
+                  }
+                }
+              });
+            </script>
           </body></html>
           EOF
-
           echo "✅ compliance_dashboard.html generated successfully"
-          ls -lh "${DASHBOARD_PATH}" || echo "⚠️ Dashboard missing"
-          exit 0
 
       - name: 📤 Upload Unified Dashboard Artifact
         uses: actions/upload-artifact@v4
@@ -166,6 +194,6 @@ jobs:
 
       - name: ✅ Print Summary
         run: |
-          echo "✅ Unified Compliance Dashboard successfully generated and uploaded!"
+          echo "✅ Dashboard with Pie Chart successfully generated and uploaded!"
           echo "📄 Artifact name: compliance-dashboard"
 
