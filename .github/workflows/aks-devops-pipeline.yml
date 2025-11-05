@@ -39,22 +39,9 @@ jobs:
           ls -R ./${{ env.TF_ROOT_DIR }}
         working-directory: ${{ github.workspace }}
 
-      # ✅ Cache Terraform provider plugins for faster runs
-      - name: Cache Terraform Providers
-        uses: actions/cache@v4
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-terraform-providers-${{ env.TF_VERSION }}
-
-      # 🧩 Ensure plugin cache directory exists (fix for first run)
-      - name: Create Plugin Cache Directory
-        run: mkdir -p ~/.terraform.d/plugin-cache
-
-      # ✅ Terraform Init (no backend)
+      # ✅ Terraform Init (no backend, no cache)
       - name: Terraform Init (No Backend)
-        run: |
-          terraform init -backend=false \
-            -plugin-dir=~/.terraform.d/plugin-cache
+        run: terraform init -backend=false
         working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
       # ✅ Terraform Validate
