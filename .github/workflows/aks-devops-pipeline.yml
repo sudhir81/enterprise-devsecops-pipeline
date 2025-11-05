@@ -6,11 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-# ✅ Required for uploading SARIF to GitHub Security
-permissions:
-  contents: read
-  security-events: write
-
 env:
   TF_VERSION: 1.13.3
   TF_ROOT_DIR: project4-enterprise-aks-devops-platform
@@ -25,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ✅ Checkout repository
+      # ✅ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -35,8 +30,8 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic – Show structure
-      - name: 🔍 Debug Folder Structure
+      # ✅ Diagnostic Step — list folder structure
+      - name: Diagnostic – Show folder structure
         run: |
           echo "=== Current Working Directory ==="
           pwd
@@ -44,21 +39,21 @@ jobs:
           ls -R ./${{ env.TF_ROOT_DIR }}
         working-directory: ${{ github.workspace }}
 
-      # ✅ Terraform Init (No Backend)
+      # ✅ Terraform Init (no backend)
       - name: Terraform Init (No Backend)
         run: terraform init -backend=false
-        working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
+        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
       # ✅ Terraform Validate
       - name: Terraform Validate
         run: terraform validate
-        working-directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks
+        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Run Checkov security scan (soft fail so pipeline continues)
-      - name: Checkov Scan
+      # ✅ Run Checkov security scan — SARIF output for GitHub Security
+      - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
-          directory: ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure
+          directory: ${{ env.TF_ROOT_DIR }}/infrastructure
           framework: terraform
           soft_fail: true
           output_format: sarif
@@ -70,7 +65,26 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Install OPA (Open Policy Agent)
+      # ✅ Generate Checkov HTML Report
+      - name: Generate Checkov HTML Report
+        run: |
+          echo "🧮 Generating Checkov HTML report..."
+          docker run --rm \
+            -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
+            -d ${{ env.TF_ROOT_DIR }}/infrastructure \
+            --framework terraform \
+            --output html \
+            --output-file-path checkov_report.html
+        working-directory: ${{ github.workspace }}
+
+      # ✅ Upload HTML Report as Workflow Artifact
+      - name: Upload Checkov HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-html-report
+          path: ${{ github.workspace }}/checkov_report.html
+
+      # ✅ Install OPA
       - name: Install OPA
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
@@ -81,12 +95,12 @@ jobs:
       - name: Run OPA Policies
         run: |
           terraform show -json > plan.json || true
-          opa eval --data ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/policies/opa \
-                   --input plan.json "data.terraform.policy.deny" || true
+          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" || true
 
-      # ✅ Print post-scan summary
+      # ✅ Print completion summary
       - name: Print Checkov Summary
         run: |
-          echo "✅ Checkov completed — results uploaded to Security > Code Scanning Alerts"
-          echo "📊 Passed and failed checks are available under the SARIF report."
+          echo "✅ Terraform + Security checks completed successfully"
+          echo "📄 HTML Report available under 'Artifacts > checkov-html-report'"
+          echo "📊 SARIF report uploaded to Security > Code scanning alerts"
 
