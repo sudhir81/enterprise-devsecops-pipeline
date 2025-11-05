@@ -30,8 +30,8 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic Step — list folder structure
-      - name: Diagnostic – Show folder structure
+      # ✅ Diagnostic Step – Show repo structure
+      - name: 🔍 Debug Folder Structure
         run: |
           echo "=== Current Working Directory ==="
           pwd
@@ -39,9 +39,18 @@ jobs:
           ls -R ./${{ env.TF_ROOT_DIR }}
         working-directory: ${{ github.workspace }}
 
+      # ✅ Cache Terraform provider plugins for faster runs
+      - name: Cache Terraform Providers
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-terraform-providers-${{ env.TF_VERSION }}
+
       # ✅ Terraform Init (no backend)
       - name: Terraform Init (No Backend)
-        run: terraform init -backend=false
+        run: |
+          terraform init -backend=false \
+            -plugin-dir=~/.terraform.d/plugin-cache
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
       # ✅ Terraform Validate
@@ -49,13 +58,13 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Run Checkov security scan — soft fail so pipeline continues
+      # ✅ Run Checkov security scan — soft fail (pipeline continues)
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: ${{ env.TF_ROOT_DIR }}/infrastructure
           framework: terraform
-          soft_fail: true         # ✅ don’t fail build on findings
+          soft_fail: true
           output_format: sarif
           output_file_path: results.sarif
 
@@ -65,22 +74,22 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Install OPA
+      # ✅ Install OPA (Open Policy Agent)
       - name: Install OPA
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa
           sudo mv opa /usr/local/bin/
 
-      # ✅ Run OPA policies (non-blocking)
+      # ✅ Run OPA Policies (non-blocking)
       - name: Run OPA Policies
         run: |
           terraform show -json > plan.json || true
           opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" || true
 
-      # ✅ (Optional) Print summary after scan
+      # ✅ Print post-scan summary
       - name: Print Checkov Summary
         run: |
           echo "✅ Checkov completed — results uploaded to Security > Code Scanning Alerts"
-          echo "📊 Passed checks and failed checks can be viewed under the SARIF report."
+          echo "📊 Passed and failed checks are available under the SARIF report."
 
