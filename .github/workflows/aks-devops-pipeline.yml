@@ -87,21 +87,42 @@ jobs:
           opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      # ✅ Combine Checkov + OPA into ONE INLINE HTML Dashboard
+      # ✅ Build Unified Inline Compliance Dashboard (SAFE)
       - name: Build Unified Inline Compliance Dashboard
         continue-on-error: true
+        shell: bash
         run: |
           echo "🧱 Building single unified compliance dashboard..."
 
-          TOTAL=$(jq -r '.summary.total // (.results.passed_checks | length + .results.failed_checks | length)' checkov_report.json)
-          PASSED=$(jq -r '.summary.passed // (.results.passed_checks | length)' checkov_report.json)
-          FAILED=$(jq -r '.summary.failed // (.results.failed_checks | length)' checkov_report.json)
-          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
-          TOTAL=${TOTAL:-0}; PASSED=${PASSED:-0}; FAILED=${FAILED:-0}; SKIPPED=${SKIPPED:-0}
+          # --- Safety guards ---
+          if [ ! -s checkov_report.json ]; then
+            echo "⚠️ checkov_report.json not found or empty, creating dummy."
+            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
+          fi
 
-          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null)
+          if [ ! -s opa_result.json ]; then
+            echo "⚠️ opa_result.json not found or empty, creating dummy."
+            echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
+          fi
+
+          # --- Safe metrics extraction ---
+          PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
+          FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
+          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
+          TOTAL=$((PASSED + FAILED + SKIPPED))
+          if [ "$TOTAL" -eq 0 ]; then TOTAL=1; fi
+
+          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null || echo 0)
           OPA_VIOLATIONS=${OPA_VIOLATIONS:-0}
 
+          COMPLIANCE=$((100 * PASSED / TOTAL))
+          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"
+          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"
+          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"
+          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"
+          else GRADE="F"; fi
+
+          # --- Generate HTML ---
           echo "<html><head><title>Unified DevSecOps Compliance Dashboard</title>
           <style>
             body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
@@ -118,11 +139,24 @@ jobs:
                 background:conic-gradient(green 0% calc(${PASSED}/${TOTAL}*100%),
                                           red calc(${PASSED}/${TOTAL}*100%) calc((${PASSED}+${FAILED})/${TOTAL}*100%),
                                           orange calc((${PASSED}+${FAILED})/${TOTAL}*100%) 100%);}
+            .bar{width:60%;height:30px;border-radius:10px;margin:20px auto;background:#ddd;}
+            .fill{height:100%;border-radius:10px;text-align:center;color:white;font-weight:bold;}
+            .grade{font-size:22px;margin-top:5px;text-align:center;}
             pre{background:#f8f9fa;border:1px solid #ccc;padding:10px;border-radius:6px;overflow:auto;max-height:500px;}
           </style>
           </head><body>
 
           <h1>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
+
+          <div class='section' style='text-align:center;'>
+            <h2>📊 Overall Compliance</h2>
+            <div class='bar'>
+              <div class='fill' style='width:${COMPLIANCE}%;background:${COMPLIANCE}>=80?\"green\":(${COMPLIANCE}>=60?\"orange\":\"red\");'>
+                ${COMPLIANCE}%
+              </div>
+            </div>
+            <div class='grade'>Compliance Grade: <b>${GRADE}</b></div>
+          </div>
 
           <div class='section'>
             <h2>✅ Checkov Terraform Security Summary</h2>
@@ -150,8 +184,11 @@ jobs:
           </div>
 
           </body></html>" > compliance_dashboard.html
+
+          echo "✅ compliance_dashboard.html generated successfully"
         working-directory: ${{ github.workspace }}
 
+      # ✅ Upload Artifact
       - name: Upload Unified Inline Dashboard
         uses: actions/upload-artifact@v4
         with:
@@ -160,6 +197,6 @@ jobs:
 
       - name: Print Summary
         run: |
-          echo "✅ Unified Inline Dashboard generated!"
-          echo "📄 Open 'compliance_dashboard.html' directly — no server needed"
+          echo "✅ Unified Inline Dashboard generated successfully!"
+          echo "📄 Download artifact: compliance_dashboard.html"
 
