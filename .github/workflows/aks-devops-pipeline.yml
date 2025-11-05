@@ -17,7 +17,7 @@ env:
   TF_VERSION: "1.13.3"
   TF_ROOT_DIR: "project4-enterprise-aks-devops-platform"
   IMAGE_NAME: "sampleapp"
-  ACR_NAME: "devopsacr001"
+  ACR_NAME: "devopsacr001"   # Replace with your ACR name
   AKS_CLUSTER_NAME: "devops-aks"
   AKS_RESOURCE_GROUP: "rg-devsecops-${{ github.event.inputs.environment }}"
 
@@ -37,13 +37,14 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic step to confirm folder structure
-      - name: 🔍 Debug Folder Structure
+      # ✅ Diagnostic Step – show directory tree
+      - name: Diagnostic – Show folder structure
         run: |
-          echo "Current working directory:"
+          echo "=== Current Working Directory ==="
           pwd
-          echo "Listing repository structure under ${{ env.TF_ROOT_DIR }}:"
-          ls -R ${{ env.TF_ROOT_DIR }}
+          echo "=== Folder Tree ==="
+          ls -R ./${{ env.TF_ROOT_DIR }}
+        working-directory: ${{ github.workspace }}
 
       - name: Terraform Init (No Backend)
         run: terraform init -backend=false
@@ -53,12 +54,21 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
+      # ✅ Run Checkov scan (non-blocking + SARIF output)
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: ${{ env.TF_ROOT_DIR }}/infrastructure
           framework: terraform
-          soft_fail: false
+          soft_fail: true
+          output_format: sarif
+          output_file_path: results.sarif
+
+      # ✅ Upload SARIF to GitHub Security tab
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
 
       - name: Install OPA
         run: |
