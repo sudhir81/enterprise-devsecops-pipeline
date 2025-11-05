@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  security-events: write
+
 env:
   TF_VERSION: 1.13.3
   TF_ROOT_DIR: project4-enterprise-aks-devops-platform
