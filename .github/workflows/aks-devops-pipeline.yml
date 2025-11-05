@@ -15,9 +15,9 @@ on:
 
 env:
   TF_VERSION: "1.13.3"
-  TF_ROOT_DIR: "./project4-enterprise-aks-devops-platform"
+  TF_ROOT_DIR: "project4-enterprise-aks-devops-platform"  # ✅ Removed './' to fix working directory issue
   IMAGE_NAME: "sampleapp"
-  ACR_NAME: "devopsacr001"   # Replace with your ACR name
+  ACR_NAME: "devopsacr001"
   AKS_CLUSTER_NAME: "devops-aks"
   AKS_RESOURCE_GROUP: "rg-devsecops-${{ github.event.inputs.environment }}"
 
