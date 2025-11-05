@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ✅ Checkout repo
+      # ✅ Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -34,28 +34,13 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ✅ Diagnostic check
+      # ✅ Diagnostic
       - name: Diagnostic – Show folder structure
         run: |
-          echo "=== Working Directory ==="
-          pwd
           echo "=== Folder Tree ==="
           ls -R ./${{ env.TF_ROOT_DIR }}
-        working-directory: ${{ github.workspace }}
 
-      # ✅ Validate Terraform directory path
-      - name: Validate Terraform Path
-        run: |
-          TARGET_PATH="${{ github.workspace }}/${{ env.TF_ROOT_DIR }}/infrastructure/aks"
-          echo "🔍 Checking path: $TARGET_PATH"
-          if [ ! -d "$TARGET_PATH" ]; then
-            echo "❌ ERROR: Missing Terraform directory at $TARGET_PATH"
-            ls -R ${{ github.workspace }}/${{ env.TF_ROOT_DIR }}
-            exit 1
-          fi
-          echo "✅ Terraform path confirmed: $TARGET_PATH"
-
-      # ✅ Terraform Init & Validate
+      # ✅ Terraform Init + Validate
       - name: Terraform Init (No Backend)
         run: terraform init -backend=false
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
@@ -64,7 +49,7 @@ jobs:
         run: terraform validate
         working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
 
-      # ✅ Checkov scan (SARIF)
+      # ✅ Checkov SARIF
       - name: Checkov Scan (SARIF)
         uses: bridgecrewio/checkov-action@v12
         with:
@@ -79,11 +64,11 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Generate Checkov JSON report
+      # ✅ Generate Checkov JSON
       - name: Generate Checkov JSON Report
         continue-on-error: true
         run: |
-          echo "🧮 Generating Checkov JSON report..."
+          echo "🧮 Generating Checkov JSON..."
           docker run --rm \
             -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
             -d /tf/${{ env.TF_ROOT_DIR }}/infrastructure/aks \
@@ -92,11 +77,21 @@ jobs:
             --output-file-path /tf/checkov_report.json
         working-directory: ${{ github.workspace }}
 
-      # ✅ Build Enhanced HTML with pie chart summary
-      - name: Build Enhanced HTML Report
+      # ✅ Install OPA and Run Policies
+      - name: Run OPA Policy Validation
         continue-on-error: true
         run: |
-          echo "🎨 Building enhanced HTML dashboard..."
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa && sudo mv opa /usr/local/bin/
+          terraform show -json > plan.json || true
+          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" --format=json > opa_result.json || true
+        working-directory: ${{ github.workspace }}
+
+      # ✅ Combine Checkov + OPA into ONE INLINE HTML Dashboard
+      - name: Build Unified Inline Compliance Dashboard
+        continue-on-error: true
+        run: |
+          echo "🧱 Building single unified compliance dashboard..."
 
           TOTAL=$(jq -r '.summary.total // (.results.passed_checks | length + .results.failed_checks | length)' checkov_report.json)
           PASSED=$(jq -r '.summary.passed // (.results.passed_checks | length)' checkov_report.json)
@@ -104,96 +99,60 @@ jobs:
           SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
           TOTAL=${TOTAL:-0}; PASSED=${PASSED:-0}; FAILED=${FAILED:-0}; SKIPPED=${SKIPPED:-0}
 
-          echo "<html><head><title>Checkov Compliance Report</title>
-          <style>
-            body { font-family: Arial; background:#f8f9fa; margin:30px; }
-            h1 { color:#222; }
-            table { border-collapse: collapse; width:60%; margin-bottom:20px; }
-            th, td { border:1px solid #ccc; padding:8px; text-align:left; }
-            th { background:#343a40; color:#fff; }
-            .passed { color:green; font-weight:bold; }
-            .failed { color:red; font-weight:bold; }
-            .skipped { color:orange; font-weight:bold; }
-            .pie { width:200px; height:200px; border-radius:50%;
-                   background:conic-gradient(green 0% calc(${PASSED}/${TOTAL}*100%),
-                                             red calc(${PASSED}/${TOTAL}*100%) calc((${PASSED}+${FAILED})/${TOTAL}*100%),
-                                             orange calc((${PASSED}+${FAILED})/${TOTAL}*100%) 100%);
-                   margin:20px 0; }
-            pre { background:#fff; border:1px solid #ccc; padding:10px; border-radius:6px; overflow:auto; }
-          </style>
-          </head><body>
-          <h1>✅ Checkov Terraform Compliance Summary</h1>
-          <div class='pie'></div>
-          <table>
-            <tr><th>Status</th><th>Count</th></tr>
-            <tr><td class='passed'>✅ Passed</td><td>$PASSED</td></tr>
-            <tr><td class='failed'>❌ Failed</td><td>$FAILED</td></tr>
-            <tr><td class='skipped'>⚠️ Skipped</td><td>$SKIPPED</td></tr>
-            <tr><td><b>Total</b></td><td><b>$TOTAL</b></td></tr>
-          </table>
-          <h2>Full JSON Report</h2><pre>" > checkov_report.html
+          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null)
+          OPA_VIOLATIONS=${OPA_VIOLATIONS:-0}
 
-          jq '.' checkov_report.json >> checkov_report.html
-          echo "</pre></body></html>" >> checkov_report.html
-        working-directory: ${{ github.workspace }}
-
-      - name: Upload Checkov HTML Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkov-html-report
-          path: ${{ github.workspace }}/checkov_report.html
-
-      # ✅ Install OPA
-      - name: Install OPA
-        run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
-          chmod +x opa
-          sudo mv opa /usr/local/bin/
-
-      # ✅ Run OPA policies + generate JSON
-      - name: Run OPA Policies
-        continue-on-error: true
-        run: |
-          terraform show -json > plan.json || true
-          echo "⚙️ Running OPA policy validation..."
-          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json "data.terraform.policy.deny" --format=json > opa_result.json || true
-
-          TOTAL=$(jq '.result[0].expressions[0].value | length' opa_result.json)
-          TOTAL=${TOTAL:-0}
-
-          echo "<html><head><title>OPA Policy Report</title>
-          <style>body{font-family:Arial;background:#f8f9fa;margin:30px;}
-          h1{color:#222;}pre{background:#fff;border:1px solid #ccc;padding:10px;border-radius:6px;}
-          .passed{color:green;font-weight:bold;} .failed{color:red;font-weight:bold;}
-          </style></head><body>
-          <h1>🧠 OPA Policy Validation Summary</h1>
-          <p>Total Violations: <b class='failed'>$TOTAL</b></p>
-          <h2>Details</h2><pre>" > opa_report.html
-          jq '.' opa_result.json >> opa_report.html
-          echo "</pre></body></html>" >> opa_report.html
-        working-directory: ${{ github.workspace }}
-
-      # ✅ Combine both reports into unified dashboard
-      - name: Combine Reports into Unified Dashboard
-        run: |
-          echo "🧱 Building Unified Compliance Dashboard..."
           echo "<html><head><title>Unified DevSecOps Compliance Dashboard</title>
           <style>
-            body{font-family:Arial;background:#f4f6f9;margin:20px;}
-            h1{text-align:center;}
-            iframe{width:48%;height:700px;border:1px solid #ccc;border-radius:8px;}
-            .split{display:flex;justify-content:space-between;gap:2%;}
+            body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
+            h1{text-align:center;color:#1a237e;}
+            h2{color:#0d47a1;margin-top:40px;}
+            table{border-collapse:collapse;width:60%;margin-bottom:20px;}
+            th,td{border:1px solid #ccc;padding:8px;text-align:left;}
+            th{background:#283593;color:white;}
+            .passed{color:green;font-weight:bold;}
+            .failed{color:red;font-weight:bold;}
+            .skipped{color:orange;font-weight:bold;}
+            .section{padding:20px;background:#fff;border-radius:10px;box-shadow:0 0 8px rgba(0,0,0,0.1);margin-bottom:30px;}
+            .pie{width:220px;height:220px;border-radius:50%;margin:20px auto;
+                background:conic-gradient(green 0% calc(${PASSED}/${TOTAL}*100%),
+                                          red calc(${PASSED}/${TOTAL}*100%) calc((${PASSED}+${FAILED})/${TOTAL}*100%),
+                                          orange calc((${PASSED}+${FAILED})/${TOTAL}*100%) 100%);}
+            pre{background:#f8f9fa;border:1px solid #ccc;padding:10px;border-radius:6px;overflow:auto;max-height:500px;}
           </style>
           </head><body>
+
           <h1>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
-          <div class='split'>
-            <iframe src='checkov_report.html'></iframe>
-            <iframe src='opa_report.html'></iframe>
+
+          <div class='section'>
+            <h2>✅ Checkov Terraform Security Summary</h2>
+            <div class='pie'></div>
+            <table>
+              <tr><th>Status</th><th>Count</th></tr>
+              <tr><td class='passed'>✅ Passed</td><td>$PASSED</td></tr>
+              <tr><td class='failed'>❌ Failed</td><td>$FAILED</td></tr>
+              <tr><td class='skipped'>⚠️ Skipped</td><td>$SKIPPED</td></tr>
+              <tr><td><b>Total</b></td><td><b>$TOTAL</b></td></tr>
+            </table>
+            <h3>Detailed Checkov Results (JSON)</h3>
+            <pre>$(jq '.' checkov_report.json)</pre>
           </div>
+
+          <div class='section'>
+            <h2>🧠 OPA Policy Validation Summary</h2>
+            <p>Total Violations: <b class='failed'>$OPA_VIOLATIONS</b></p>
+            <h3>OPA Evaluation Output (JSON)</h3>
+            <pre>$(jq '.' opa_result.json)</pre>
+          </div>
+
+          <div style='text-align:center;color:#555;margin-top:30px;'>
+            <hr><p>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
+          </div>
+
           </body></html>" > compliance_dashboard.html
         working-directory: ${{ github.workspace }}
 
-      - name: Upload Unified Compliance Dashboard
+      - name: Upload Unified Inline Dashboard
         uses: actions/upload-artifact@v4
         with:
           name: compliance-dashboard
@@ -201,7 +160,6 @@ jobs:
 
       - name: Print Summary
         run: |
-          echo "✅ Terraform + Security checks completed successfully"
-          echo "📊 Compliance Dashboard ready under Artifacts → compliance-dashboard.html"
-          echo "📄 SARIF report uploaded to Security → Code scanning alerts"
+          echo "✅ Unified Inline Dashboard generated!"
+          echo "📄 Open 'compliance_dashboard.html' directly — no server needed"
 
