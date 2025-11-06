@@ -57,7 +57,7 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ Generate JSON Checkov Report (fixed)
+      # ✅ FIXED: Checkov JSON output now correctly saved to workspace
       - name: 🧮 Generate Checkov JSON Report
         continue-on-error: true
         run: |
@@ -67,16 +67,16 @@ jobs:
             -d /tf/${{ env.TF_ROOT_DIR }}/infrastructure/aks \
             --framework terraform \
             --output json \
-            --output-file-path /tf/${{ github.workspace }}/checkov_report.json || true
+            --output-file-path /tf/checkov_report.json || true
 
           echo "✅ Verifying report..."
           if [ -s checkov_report.json ]; then
-            echo "✅ Found report in workspace"
+            echo "✅ Found checkov_report.json successfully"
           else
-            echo "⚠️ Missing report, creating dummy JSON"
+            echo "⚠️ Report missing, creating dummy JSON"
             echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
           fi
-          head -15 checkov_report.json || true
+          head -20 checkov_report.json || true
         working-directory: ${{ github.workspace }}
 
       - name: 🔒 Run OPA Policy Validation
@@ -90,7 +90,7 @@ jobs:
             "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      # 🧱 Build Advanced Compliance Dashboard
+      # 🧱 Build HTML Dashboard with Pie Chart + Trend Indicator
       - name: 🧱 Build Advanced Compliance Dashboard
         continue-on-error: true
         shell: bash
@@ -183,6 +183,7 @@ jobs:
             </script>
           </body></html>
           EOF
+
           echo "✅ compliance_dashboard.html generated successfully"
 
       - name: 📤 Upload Unified Dashboard Artifact
