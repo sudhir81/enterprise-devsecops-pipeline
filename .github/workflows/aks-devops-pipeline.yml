@@ -57,7 +57,7 @@ jobs:
         with:
           sarif_file: results.sarif
 
-      # ✅ FIXED: Checkov JSON output now correctly saved to workspace
+      # ✅ FIXED: Save Checkov JSON output to host workspace
       - name: 🧮 Generate Checkov JSON Report
         continue-on-error: true
         run: |
@@ -69,7 +69,11 @@ jobs:
             --output json \
             --output-file-path /tf/checkov_report.json || true
 
-          echo "✅ Verifying report..."
+          echo "⏳ Waiting for Checkov report to flush..."
+          for i in {1..5}; do
+            [ -s checkov_report.json ] && break || sleep 2
+          done
+
           if [ -s checkov_report.json ]; then
             echo "✅ Found checkov_report.json successfully"
           else
@@ -90,9 +94,7 @@ jobs:
             "data.terraform.policy.deny" --format=json > opa_result.json || true
         working-directory: ${{ github.workspace }}
 
-      # 🧱 Build HTML Dashboard with Pie Chart + Trend Indicator
-      - name: 🧱 Build Advanced Compliance Dashboard
-        continue-on-error: true
+      - name: 🧱 Build Unified Compliance Dashboard (Fixed Encoding + Trend)
         shell: bash
         run: |
           set +e
@@ -122,6 +124,8 @@ jobs:
           elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; COLOR="orangered";
           else GRADE="F"; COLOR="red"; fi
 
+          TREND=$( [ "$COMPLIANCE" -ge 60 ] && echo "📈 Improving" || echo "📉 Needs Attention" )
+
           cat <<EOF > "${DASHBOARD_PATH}"
           <html>
           <head>
@@ -150,9 +154,7 @@ jobs:
 
             <div style='text-align:center;margin-top:30px;font-size:18px;'>
               📊 Compliance Trend:
-              <b style='color:${COLOR};'>
-                $([ "$COMPLIANCE" -ge 60 ] && echo "📈 Improving") || echo "📉 Needs Attention"
-              </b>
+              <b style='color:${COLOR};'>${TREND}</b>
             </div>
 
             <p style='text-align:center;color:#777;margin-top:40px;'>
@@ -173,10 +175,7 @@ jobs:
                 options: {
                   plugins: {
                     legend: { position: 'bottom' },
-                    title: {
-                      display: true,
-                      text: 'Terraform + OPA Compliance Overview'
-                    }
+                    title: { display: true, text: 'Terraform + OPA Compliance Overview' }
                   }
                 }
               });
@@ -195,6 +194,6 @@ jobs:
 
       - name: ✅ Print Summary
         run: |
-          echo "✅ Dashboard with Pie Chart successfully generated and uploaded!"
+          echo "✅ Dashboard successfully generated and uploaded!"
           echo "📄 Artifact name: compliance-dashboard"
 
