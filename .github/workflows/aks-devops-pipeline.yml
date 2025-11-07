@@ -1,155 +1,79 @@
-name: 🚀 Enterprise AKS + DevSecOps Pipeline
+name: 🚀 AKS DevSecOps CI/CD
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
-
-env:
-  TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
-  TF_VAR_environment: dev
-  TF_VAR_prefix: entdevops
-  TF_VAR_acr_name: devopsacr001
-  TF_VAR_image_name: sampleapp
-  TF_VAR_aks_cluster_name: devops-aks
-  TF_VAR_aks_resource_group: rg-devsecops-dev
-  CHECKOV_ARGS: --compact
-  OPA_URL: https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+    branches:
+      - main
 
 permissions:
   contents: read
-  id-token: write
-  actions: read
 
 jobs:
-  terraform-validate-scan:
+  terraform-validate:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+
+    env:
+      TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+      TF_VAR_environment: dev
+      TF_VAR_prefix: entdevops
+      TF_VAR_acr_name: devopsacr001
+      TF_VAR_image_name: sampleapp
+      TF_VAR_aks_cluster_name: devops-aks
+      TF_VAR_aks_resource_group: rg-devsecops-dev
 
     steps:
-      - name: 📥 Checkout repository
+      - name: 📦 Checkout code
         uses: actions/checkout@v4
 
-      - name: 🧩 Setup Python (for Checkov)
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.x"
-
-      - name: 🔧 Install Checkov and jq
-        run: |
-          python -m pip install --upgrade pip
-          pip install checkov
-          sudo apt-get update && sudo apt-get install -y jq curl
-
-      # === 🔐 Azure Login (Service Principal with Secret) ===
-      - name: 🔐 Azure Login
+      - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
           auth-type: SERVICE_PRINCIPAL
-          enable-AzPSSession: false
-          environment: azurecloud
-          allow-no-subscriptions: false
 
-      # === 🧱 Terraform ===
-      - name: 🧱 Terraform Init
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: terraform init -upgrade
+      - name: ⚙️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
 
-      - name: ✅ Terraform Validate
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: terraform validate
+      - name: 🧩 Terraform Init
+        run: cd $TF_ROOT_DIR && terraform init -upgrade
 
-      - name: 📊 Terraform Plan
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: terraform plan -out=tfplan -input=false
+      - name: 🧠 Terraform Validate
+        run: cd $TF_ROOT_DIR && terraform validate
 
-      # === 🛡️ Security Scanning ===
-      - name: 🔎 Run Checkov (Terraform)
-        working-directory: ${{ env.TF_ROOT_DIR }}
+      - name: 🧮 Terraform Plan
+        run: cd $TF_ROOT_DIR && terraform plan -out=tfplan -input=false
+
+      - name: 🧱 Checkov Security Scan
         run: |
-          echo "🔍 Running Checkov scan..."
-          checkov -d . $CHECKOV_ARGS -o json > checkov_report.json || true
-          echo "✅ Checkov step completed (non-fatal)."
+          docker run --rm \
+            -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
+            -d $TF_ROOT_DIR --framework terraform --compact \
+            --output json --output-file-path $TF_ROOT_DIR/checkov_report.json
+        continue-on-error: true
 
-      - name: 🧾 Ensure Checkov report exists
-        working-directory: ${{ env.TF_ROOT_DIR }}
+      - name: 🔍 Checkov Report Validation
         run: |
-          if [ ! -s checkov_report.json ]; then
-            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
-            echo "⚠️ Created dummy Checkov report."
+          FAILED=$(jq -r '.summary.failed // 0' "$TF_ROOT_DIR/checkov_report.json")
+          echo "Checkov failed count=$FAILED"
+          if [ "$FAILED" -gt 0 ]; then
+            echo "Security violations detected by Checkov."
+            exit 1
           fi
+          echo "✅ No Checkov failures detected."
 
-      - name: 🧠 Install OPA & Validate Policies (Optional)
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: |
-          echo "🧠 Installing OPA..."
-          curl -L -o opa $OPA_URL
-          chmod +x opa
-          if [ -f ./policy.rego ]; then
-            ./opa eval -i . --format=json "data" > opa_result.json || echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
-          else
-            echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
-          fi
-
-      - name: 🧱 Build Unified Compliance Dashboard
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: |
-          echo "🧱 Building unified compliance dashboard..."
-          PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
-          FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
-          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
-          TOTAL=$((PASSED + FAILED + SKIPPED))
-          if [ "$TOTAL" -eq 0 ]; then TOTAL=1; fi
-          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null || echo 0)
-          OPA_VIOLATIONS=${OPA_VIOLATIONS:-0}
-          COMPLIANCE=$((100 * PASSED / TOTAL))
-          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"
-          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"
-          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"
-          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"
-          else GRADE="F"; fi
-
-          cat > compliance_dashboard.html <<HTML
-          <html><head><title>Unified DevSecOps Compliance Dashboard</title>
-          <style>
-          body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
-          h1{text-align:center;color:#1a237e;}
-          table{border-collapse:collapse;width:60%;margin:auto;margin-top:20px;}
-          th,td{border:1px solid #ccc;padding:8px;text-align:left;}
-          th{background:#283593;color:white;}
-          .passed{color:green;font-weight:bold;}
-          .failed{color:red;font-weight:bold;}
-          .skipped{color:orange;font-weight:bold;}
-          .grade{text-align:center;margin:15px;font-size:18px;}
-          </style></head><body>
-          <h1>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
-          <div class='grade'><b>Compliance Grade:</b> ${GRADE} (${COMPLIANCE}%)</div>
-          <table>
-          <tr><th>Status</th><th>Count</th></tr>
-          <tr><td class='passed'>✅ Passed</td><td>${PASSED}</td></tr>
-          <tr><td class='failed'>❌ Failed</td><td>${FAILED}</td></tr>
-          <tr><td class='skipped'>⚠️ Skipped</td><td>${SKIPPED}</td></tr>
-          <tr><td><b>Total</b></td><td><b>${TOTAL}</b></td></tr>
-          </table>
-          <h2>OPA Policy Violations: ${OPA_VIOLATIONS}</h2>
-          <hr><p style='text-align:center;color:#777;'>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
-          </body></html>
-          HTML
-
-          echo "✅ compliance_dashboard.html generated successfully."
-
-      - name: 📤 Upload Compliance Dashboard
+      - name: 📤 Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: compliance-dashboard
-          path: ${{ env.TF_ROOT_DIR }}/compliance_dashboard.html
-
-      - name: 🏁 Final Status
-        run: echo "✅ Pipeline completed successfully!"
-
+          name: terraform-plan
+          path: ${{ env.TF_ROOT_DIR }}/tfplan
