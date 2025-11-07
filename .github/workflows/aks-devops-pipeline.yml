@@ -1,30 +1,35 @@
-name: 🚀 Enterprise AKS + DevSecOps Platform CI/CD
+name: 🌍 Enterprise AKS Infrastructure Deploy – Multi-Stage
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Choose environment to deploy (dev | preprod | prod)"
+        required: true
+        default: "dev"
 
 permissions:
   contents: read
-  security-events: write
+  id-token: write
 
 env:
   TF_VERSION: 1.13.3
-  TF_ROOT_DIR: project4-enterprise-aks-devops-platform
-  IMAGE_NAME: sampleapp
-  ACR_NAME: devopsacr001
-  AKS_CLUSTER_NAME: devops-aks
-  AKS_RESOURCE_GROUP: rg-devsecops-dev
+  TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+  ARM_USE_OIDC: true
+  ARM_USE_MSI: false
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
 jobs:
-  terraform-validate:
-    name: 🧩 Terraform Validate + Security Scan
+  terraform-plan:
+    name: 🧩 Terraform Plan (${{ github.event.inputs.environment }})
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
 
     steps:
-      - name: 🧾 Checkout repository
+      - name: 🧾 Checkout code
         uses: actions/checkout@v4
 
       - name: ⚙️ Setup Terraform
@@ -32,136 +37,91 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: 📂 Diagnostic – Show folder structure
-        run: ls -R ./${{ env.TF_ROOT_DIR }}
-
-      - name: 🧱 Terraform Init
-        run: terraform init -backend=false
-        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
-
-      - name: 🔍 Terraform Validate
-        run: terraform validate
-        working-directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
-
-      - name: 🧠 Checkov Security Scan (SARIF)
-        uses: bridgecrewio/checkov-action@v12
+      - name: 🔐 Azure Login (OIDC)
+        uses: azure/login@v2
         with:
-          directory: ${{ env.TF_ROOT_DIR }}/infrastructure/aks
-          framework: terraform
-          soft_fail: true
-          output_format: sarif
-          output_file_path: results.sarif
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 📤 Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
+      - name: 📂 Terraform Init
+        run: terraform init -input=false
+        working-directory: ${{ env.TF_ROOT_DIR }}
 
-      # ✅ Generate Checkov JSON report into workspace root
-      - name: 🧮 Generate Checkov JSON Report
-        continue-on-error: true
-        run: |
-          echo "🧮 Generating Checkov JSON report..."
-          WORK_DIR="${{ github.workspace }}"
-          docker run --rm \
-            -v "${WORK_DIR}":/tf ghcr.io/bridgecrewio/checkov:latest \
-            -d /tf/${{ env.TF_ROOT_DIR }}/infrastructure/aks \
-            --framework terraform \
-            --output json \
-            --output-file-path /tf/checkov_report.json || true
+      - name: 🧠 Terraform Plan
+        run: terraform plan -out=tfplan-${{ github.event.inputs.environment }}.bin
+        working-directory: ${{ env.TF_ROOT_DIR }}
 
-          echo "⏳ Waiting for Checkov report to flush..."
-          for i in {1..5}; do
-            [ -s "${WORK_DIR}/checkov_report.json" ] && break || sleep 2
-          done
-
-          if [ -s "${WORK_DIR}/checkov_report.json" ]; then
-            echo "✅ checkov_report.json found successfully"
-          else
-            echo "⚠️ Report missing — creating dummy JSON"
-            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > "${WORK_DIR}/checkov_report.json"
-          fi
-
-          head -20 "${WORK_DIR}/checkov_report.json" || true
-
-      - name: 🔒 Run OPA Policy Validation
-        continue-on-error: true
-        run: |
-          echo "🔍 Installing OPA and validating policies..."
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
-          chmod +x opa && sudo mv opa /usr/local/bin/
-          terraform show -json > plan.json || true
-          opa eval --data ${{ env.TF_ROOT_DIR }}/policies/opa --input plan.json \
-            "data.terraform.policy.deny" --format=json > opa_result.json || true
-        working-directory: ${{ github.workspace }}
-
-      - name: 🧱 Build Unified Compliance Dashboard
-        run: |
-          set +e
-          sudo apt-get update -y && sudo apt-get install -y jq
-          WORK_DIR="${{ github.workspace }}"
-          echo "🧱 Building unified compliance dashboard from ${WORK_DIR} ..."
-
-          # ✅ Read data using absolute paths
-          PASSED=$(jq -r '.summary.passed // 0' "${WORK_DIR}/checkov_report.json")
-          FAILED=$(jq -r '.summary.failed // 0' "${WORK_DIR}/checkov_report.json")
-          SKIPPED=$(jq -r '.summary.skipped // 0' "${WORK_DIR}/checkov_report.json")
-          TOTAL=$((PASSED + FAILED + SKIPPED))
-          [ "$TOTAL" -eq 0 ] && TOTAL=1
-          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' "${WORK_DIR}/opa_result.json" 2>/dev/null || echo 0)
-          COMPLIANCE=$((100 * PASSED / TOTAL))
-
-          if [ "$COMPLIANCE" -ge 90 ]; then GRADE="A"; COLOR="green";
-          elif [ "$COMPLIANCE" -ge 75 ]; then GRADE="B"; COLOR="limegreen";
-          elif [ "$COMPLIANCE" -ge 60 ]; then GRADE="C"; COLOR="orange";
-          elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"; COLOR="orangered";
-          else GRADE="F"; COLOR="red"; fi
-
-          TREND=$( [ "$COMPLIANCE" -ge 60 ] && echo "📈 Improving" || echo "📉 Needs Attention" )
-          DASHBOARD="${WORK_DIR}/compliance_dashboard.html"
-
-          cat <<EOF > "${DASHBOARD}"
-          <html><head><meta charset="UTF-8">
-          <title>Unified DevSecOps Compliance Dashboard</title>
-          <script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head>
-          <body style='font-family:Arial,Helvetica,sans-serif;background:#f9fafc;margin:30px;'>
-          <h1 style='text-align:center;color:#1a237e;'>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
-          <table border='1' cellspacing='0' cellpadding='6' style='border-collapse:collapse;width:75%;margin:auto;'>
-          <tr><th>✅ Passed</th><th>❌ Failed</th><th>⚠️ Skipped</th><th>🧠 OPA Violations</th><th>📈 Compliance %</th><th>🏅 Grade</th></tr>
-          <tr>
-          <td style='color:green;'>${PASSED}</td>
-          <td style='color:red;'>${FAILED}</td>
-          <td style='color:orange;'>${SKIPPED}</td>
-          <td style='color:red;'>${OPA_VIOLATIONS}</td>
-          <td><b>${COMPLIANCE}%</b></td>
-          <td><b>${GRADE}</b></td>
-          </tr></table>
-          <div style='width:300px;margin:auto;margin-top:40px;'><canvas id="compliancePie"></canvas></div>
-          <div style='text-align:center;margin-top:30px;font-size:18px;'>📊 Compliance Trend:
-          <b style='color:${COLOR};'>${TREND}</b></div>
-          <p style='text-align:center;color:#777;margin-top:40px;'>Generated automatically by
-          <b>Enterprise AKS + DevSecOps CI/CD ✨</b></p>
-          <script>
-          const ctx=document.getElementById('compliancePie');
-          new Chart(ctx,{type:'pie',data:{labels:['Passed','Failed','Skipped'],
-          datasets:[{data:[${PASSED},${FAILED},${SKIPPED}],
-          backgroundColor:['#2ecc71','#e74c3c','#f1c40f']}]},
-          options:{plugins:{legend:{position:'bottom'},
-          title:{display:true,text:'Terraform + OPA Compliance Overview'}}}});
-          </script></body></html>
-          EOF
-
-          echo "✅ compliance_dashboard.html generated successfully at ${DASHBOARD}"
-
-      - name: 📤 Upload Unified Dashboard
+      - name: 📦 Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: compliance-dashboard
-          path: ${{ github.workspace }}/compliance_dashboard.html
-          if-no-files-found: error
+          name: terraform-plan-${{ github.event.inputs.environment }}
+          path: ${{ env.TF_ROOT_DIR }}/tfplan-${{ github.event.inputs.environment }}.bin
 
-      - name: ✅ Print Summary
+  terraform-apply:
+    name: 🚀 Terraform Apply (${{ github.event.inputs.environment }})
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: https://portal.azure.com
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: 🧾 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: 🔐 Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: 📥 Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ github.event.inputs.environment }}
+          path: ${{ env.TF_ROOT_DIR }}
+
+      - name: 🚀 Terraform Apply
+        run: terraform apply -auto-approve tfplan-${{ github.event.inputs.environment }}.bin
+        working-directory: ${{ env.TF_ROOT_DIR }}
+
+      - name: 🧹 Post-Deployment Security Re-Scan
         run: |
-          echo "✅ Dashboard successfully generated and uploaded!"
-          echo "📄 Artifact: compliance-dashboard.html"
+          echo "🔍 Running post-deployment Checkov + OPA validation..."
+          docker run --rm -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest -d /tf/${{ env.TF_ROOT_DIR }} --framework terraform
+          echo "✅ Scan complete"
+
+  terraform-destroy:
+    name: 💣 Terraform Destroy (${{ github.event.inputs.environment }})
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.environment == 'dev' }}
+    needs: terraform-apply
+    steps:
+      - name: 🧾 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: 🔐 Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: 💣 Terraform Destroy
+        run: terraform destroy -auto-approve
+        working-directory: ${{ env.TF_ROOT_DIR }}
 
