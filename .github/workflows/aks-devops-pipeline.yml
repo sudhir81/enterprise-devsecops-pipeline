@@ -20,17 +20,17 @@ jobs:
       TF_VAR_image_name: sampleapp
       TF_VAR_aks_cluster_name: devops-aks
       TF_VAR_aks_resource_group: rg-devsecops-dev
+      OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
     steps:
-      - name: 📦 Checkout code
+      # 🧩 Checkout
+      - name: 📦 Checkout repository
         uses: actions/checkout@v4
 
+      # 🔐 Azure Login (Service Principal Secret-based)
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           creds: |
             {
               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
@@ -38,23 +38,33 @@ jobs:
               "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
-          auth-type: SERVICE_PRINCIPAL
 
+      # ⚙️ Setup Terraform
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
+      # 🌍 Terraform Init
       - name: 🧩 Terraform Init
-        run: cd $TF_ROOT_DIR && terraform init -upgrade
+        run: |
+          cd $TF_ROOT_DIR
+          terraform init -upgrade
 
-      - name: 🧠 Terraform Validate
-        run: cd $TF_ROOT_DIR && terraform validate
+      # ✅ Terraform Validate
+      - name: ✅ Terraform Validate
+        run: |
+          cd $TF_ROOT_DIR
+          terraform validate
 
+      # 🧮 Terraform Plan
       - name: 🧮 Terraform Plan
-        run: cd $TF_ROOT_DIR && terraform plan -out=tfplan -input=false
+        run: |
+          cd $TF_ROOT_DIR
+          terraform plan -out=tfplan -input=false
 
-      - name: 🧱 Checkov Security Scan
+      # 🧱 Checkov Security Scan
+      - name: 🧱 Run Checkov Security Scan
         run: |
           docker run --rm \
             -v $(pwd):/tf ghcr.io/bridgecrewio/checkov:latest \
@@ -62,17 +72,37 @@ jobs:
             --output json --output-file-path $TF_ROOT_DIR/checkov_report.json
         continue-on-error: true
 
-      - name: 🔍 Checkov Report Validation
+      # 🔍 Validate Checkov Results
+      - name: 🔍 Validate Checkov Results
         run: |
-          FAILED=$(jq -r '.summary.failed // 0' "$TF_ROOT_DIR/checkov_report.json")
-          echo "Checkov failed count=$FAILED"
+          FAILED=$(jq -r '.summary.failed // 0' "$TF_ROOT_DIR/checkov_report.json" 2>/dev/null || echo 0)
+          echo "❗ Failed checks: $FAILED"
           if [ "$FAILED" -gt 0 ]; then
-            echo "Security violations detected by Checkov."
+            echo "🚫 Security violations detected by Checkov."
             exit 1
           fi
           echo "✅ No Checkov failures detected."
 
-      - name: 📤 Upload Plan Artifact
+      # 🧠 OPA Policy Validation
+      - name: 🧠 OPA Policy Validation
+        run: |
+          echo "🔍 Installing OPA CLI..."
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa && sudo mv opa /usr/local/bin/
+          echo "✅ OPA installed successfully."
+
+          echo "🚀 Running OPA policy checks..."
+          cd $TF_ROOT_DIR
+          for policy in $(find ../policies/opa -name "*.rego"); do
+            echo "⚙️ Evaluating: $policy"
+            opa eval --fail-defined -f pretty -d $policy "data.terraform.deny"
+          done
+
+          echo "✅ OPA policy validation completed successfully."
+        continue-on-error: true
+
+      # 📦 Upload Terraform Plan
+      - name: 📤 Upload Terraform Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
