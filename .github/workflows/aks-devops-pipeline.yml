@@ -27,17 +27,11 @@ jobs:
       - name: 📦 Checkout repository
         uses: actions/checkout@v4
 
-      # 🔐 Azure Login (Service Principal Secret-based)
-      - name: 🔐 Azure Login using Service Principal
+      # 🔐 Azure Login (Service Principal JSON-based)
+      - name: 🔐 Azure Login with SP JSON
         uses: azure/login@v2
         with:
-          creds: |
-            {
-              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
-              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
-              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
-              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
-            }
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # ⚙️ Setup Terraform
       - name: ⚙️ Setup Terraform
@@ -97,7 +91,6 @@ jobs:
             echo "⚙️ Evaluating: $policy"
             opa eval --fail-defined -f pretty -d $policy "data.terraform.deny"
           done
-
           echo "✅ OPA policy validation completed successfully."
         continue-on-error: true
 
