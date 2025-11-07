@@ -1,0 +1,83 @@
+name: 🚀 AKS Deploy Pipeline (Phase 4.4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to deploy (dev/preprod/prod)"
+        required: true
+        default: "dev"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-aks:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: https://portal.azure.com
+
+    env:
+      TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+      TF_VAR_environment: ${{ github.event.inputs.environment }}
+      TF_VAR_prefix: entdevops
+      TF_VAR_acr_name: devopsacr001
+      TF_VAR_image_name: sampleapp
+      TF_VAR_aks_cluster_name: devops-aks
+      TF_VAR_aks_resource_group: rg-devsecops-dev
+
+    steps:
+      - name: 📦 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Azure Login (Service Principal)
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      - name: ⚙️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+
+      - name: 🧩 Terraform Init
+        run: |
+          cd $TF_ROOT_DIR
+          terraform init -upgrade
+
+      - name: ✅ Terraform Validate
+        run: |
+          cd $TF_ROOT_DIR
+          terraform validate
+
+      - name: 🧮 Terraform Plan
+        run: |
+          cd $TF_ROOT_DIR
+          terraform plan -out=tfplan -input=false
+
+      - name: ⏳ Manual Approval before Apply
+        uses: trstringer/manual-approval@v1
+        with:
+          approvers: sudhir81
+          minimum-approvals: 1
+          timeout-minutes: 30
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🚀 Terraform Apply
+        run: |
+          cd $TF_ROOT_DIR
+          terraform apply -auto-approve tfplan
+
+      - name: 📤 Upload AKS Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: aks-outputs
+          path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
