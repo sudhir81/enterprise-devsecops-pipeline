@@ -1,0 +1,146 @@
+name: 🚀 Enterprise AKS + DevSecOps Platform CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  TF_VERSION: 1.13.3
+  TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+  IMAGE_NAME: sampleapp
+  ACR_NAME: devopsacr001
+  AKS_CLUSTER_NAME: devops-aks
+  AKS_RESOURCE_GROUP: rg-devsecops-dev
+  TF_VAR_environment: dev
+  TF_VAR_prefix: devsecops
+
+jobs:
+  terraform-plan:
+    name: 🧩 Terraform Validate + Plan + Security Scan
+    runs-on: ubuntu-latest
+    outputs:
+      tfplan-file: ${{ steps.plan.outputs.tfplan-file }}
+
+    steps:
+      - name: 🛠️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: 🔐 Azure Login (Service Principal)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          enable-AzPSSession: false
+          environment: azurecloud
+          allow-no-subscriptions: false
+
+      - name: 🌍 Export Terraform Variables
+        run: |
+          echo '${{ secrets.AZURE_CREDENTIALS }}' > /tmp/azcreds.json
+          echo "ARM_CLIENT_ID=$(jq -r .clientId /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(jq -r .clientSecret /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(jq -r .tenantId /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_USE_OIDC=false" >> $GITHUB_ENV
+          rm /tmp/azcreds.json
+
+          echo "TF_VAR_acr_name=${{ env.ACR_NAME }}" >> $GITHUB_ENV
+          echo "TF_VAR_image_name=${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
+          echo "TF_VAR_aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" >> $GITHUB_ENV
+          echo "TF_VAR_aks_resource_group=${{ env.AKS_RESOURCE_GROUP }}" >> $GITHUB_ENV
+          echo "TF_VAR_location=East US" >> $GITHUB_ENV
+          echo "TF_VAR_aks_node_count=2" >> $GITHUB_ENV
+          echo "TF_VAR_aks_node_size=Standard_B2s" >> $GITHUB_ENV
+          echo "TF_VAR_kubernetes_version=1.29.2" >> $GITHUB_ENV
+
+      - name: 🚀 Terraform Init
+        run: cd ${{ env.TF_ROOT_DIR }} && terraform init -upgrade
+
+      - name: 🧾 Terraform Validate
+        run: cd ${{ env.TF_ROOT_DIR }} && terraform validate
+
+      - name: 📋 Terraform Plan
+        id: plan
+        run: |
+          cd ${{ env.TF_ROOT_DIR }}
+          terraform plan -out=tfplan -input=false
+          cp tfplan $GITHUB_WORKSPACE/tfplan
+          echo "tfplan-file=tfplan" >> $GITHUB_OUTPUT
+
+      - name: 🧠 Run Checkov Security Scan
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/tf ghcr.io/bridgecrewio/checkov:latest \
+            -d /tf/${{ env.TF_ROOT_DIR }} \
+            --framework terraform \
+            --output json \
+            --output-file-path /tf/checkov_report.json
+
+      - name: 🔍 Run OPA Policy Evaluation
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa
+          ./opa eval --format=json --data project4-enterprise-aks-devops-platform/policies/opa \
+            --input checkov_report.json "data.terraform.policy.deny" > opa_result.json || true
+
+      - name: 📤 Upload Terraform Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+
+  terraform-apply:
+    name: 🚀 Terraform Apply (Manual Approval)
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    environment:
+      name: dev
+      url: https://portal.azure.com
+      # 👇 This enables manual approval gate (in repo → Settings → Environments → dev)
+      # Protect this environment in GitHub settings to require approval before this job starts.
+
+    steps:
+      - name: 🛠️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Azure Login (Service Principal)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          enable-AzPSSession: false
+          environment: azurecloud
+          allow-no-subscriptions: false
+
+      - name: 🌍 Export Terraform Variables
+        run: |
+          echo '${{ secrets.AZURE_CREDENTIALS }}' > /tmp/azcreds.json
+          echo "ARM_CLIENT_ID=$(jq -r .clientId /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(jq -r .clientSecret /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(jq -r .tenantId /tmp/azcreds.json)" >> $GITHUB_ENV
+          echo "ARM_USE_OIDC=false" >> $GITHUB_ENV
+          rm /tmp/azcreds.json
+
+      - name: 📥 Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_ROOT_DIR }}
+
+      - name: ⚙️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: 🚀 Terraform Apply (Safe Mode)
+        run: |
+          cd ${{ env.TF_ROOT_DIR }}
+          terraform apply "tfplan"
+
