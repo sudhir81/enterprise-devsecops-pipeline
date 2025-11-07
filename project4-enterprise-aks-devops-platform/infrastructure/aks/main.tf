@@ -162,20 +162,4 @@ resource "azurerm_role_assignment" "acr_pull" {
   depends_on           = [azurerm_kubernetes_cluster.aks]
 }
 
-# -------------------------
-# Outputs (useful for pipeline)
-# -------------------------
-output "aks_cluster_name" {
-  value = azurerm_kubernetes_cluster.aks.name
-}
-
-output "aks_kube_config" {
-  description = "Kubeconfig (base64). Use with `terraform output -raw aks_kube_config | base64 --decode > kubeconfig`"
-  value       = azurerm_kubernetes_cluster.aks.kube_admin_config_raw
-  sensitive   = true
-}
-
-output "acr_login_server" {
-  value = azurerm_container_registry.acr.login_server
-}
 
