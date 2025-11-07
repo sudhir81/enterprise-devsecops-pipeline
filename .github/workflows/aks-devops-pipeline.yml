@@ -18,7 +18,7 @@ env:
 
 permissions:
   contents: read
-  id-token: write     # required if you use OIDC-based Azure login
+  id-token: write
   actions: read
 
 jobs:
@@ -29,106 +29,78 @@ jobs:
         shell: bash
 
     steps:
-      - name: Checkout repo
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python (for checkov)
+      - name: 🧩 Setup Python (for Checkov)
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
 
-      - name: Install tools (checkov, jq)
+      - name: 🔧 Install Checkov and jq
         run: |
           python -m pip install --upgrade pip
-          pip install checkov==2.0.?? || pip install checkov   # use latest if locked
-          sudo apt-get update && sudo apt-get install -y jq
+          pip install checkov
+          sudo apt-get update && sudo apt-get install -y jq curl
 
-      # --- Azure Login (Service Principal with secret or OIDC) ---
-      # Provide secrets in repo settings: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, AZURE_CLIENT_SECRET
-      - name: Azure Login (service principal / OIDC)
+      # === 🔐 Azure Login (Service Principal with Secret) ===
+      - name: 🔐 Azure Login
         uses: azure/login@v2
         with:
-          # If using SP with secret, supply these via repository secrets mapping below.
-          # If using OIDC/federated credentials, you can omit client-secret and configure Federated Identity in Azure.
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          # client-secret is optional for OIDC; include if using service principal secret:
-          # Note: azure/login@v2 accepts 'client-secret' as env var; if you get "Unexpected input", azure/login will pick client secret from env ARM_CLIENT_SECRET below.
-        env:
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          auth-type: SERVICE_PRINCIPAL
+          enable-AzPSSession: false
+          environment: azurecloud
+          allow-no-subscriptions: false
 
-      - name: Configure TF environment variables for Terraform
-        run: |
-          echo "TF_ROOT_DIR=${TF_ROOT_DIR}"
-          # Export ARM_* so terraform azurerm provider can pick them up if needed
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
-          # ARM_CLIENT_SECRET exported above via azure/login env mapping
+      # === 🧱 Terraform ===
+      - name: 🧱 Terraform Init
+        working-directory: ${{ env.TF_ROOT_DIR }}
+        run: terraform init -upgrade
 
-      - name: Terraform Init & Validate
+      - name: ✅ Terraform Validate
+        working-directory: ${{ env.TF_ROOT_DIR }}
+        run: terraform validate
+
+      - name: 📊 Terraform Plan
+        working-directory: ${{ env.TF_ROOT_DIR }}
+        run: terraform plan -out=tfplan -input=false
+
+      # === 🛡️ Security Scanning ===
+      - name: 🔎 Run Checkov (Terraform)
         working-directory: ${{ env.TF_ROOT_DIR }}
         run: |
-          # ensure no duplicate outputs file causing init failures; keep project files correct locally
-          # (If you intentionally have outputs in both main.tf and outputs.tf, rename one)
-          terraform init -upgrade
-          terraform validate
-
-      - name: Terraform Plan
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: |
-          # Example plan — pass variables via env/TF_VAR_*
-          terraform plan -out=tfplan -input=false
-
-      # --- Security scan: Checkov (make non-fatal) ---
-      - name: Run Checkov (Terraform)
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: |
-          echo "🔎 Running Checkov..."
-          # run checkov and write JSON to file. Make non-fatal with || true so pipeline can continue to dashboard generation.
+          echo "🔍 Running Checkov scan..."
           checkov -d . $CHECKOV_ARGS -o json > checkov_report.json || true
-          echo "Checkov step finished with exit code $? (non-fatal here)"
+          echo "✅ Checkov step completed (non-fatal)."
 
-      - name: Ensure Checkov report exists
+      - name: 🧾 Ensure Checkov report exists
         working-directory: ${{ env.TF_ROOT_DIR }}
         run: |
           if [ ! -s checkov_report.json ]; then
-            echo "⚠️ checkov_report.json not found or empty, creating dummy."
             echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
+            echo "⚠️ Created dummy Checkov report."
           fi
-          echo "Checkov report size: $(wc -c checkov_report.json)"
 
-      # --- OPA policy validation (optional) ---
-      - name: Install OPA and run policies (optional)
+      - name: 🧠 Install OPA & Validate Policies (Optional)
         working-directory: ${{ env.TF_ROOT_DIR }}
         run: |
-          echo "🔍 Installing OPA and validating policies..."
+          echo "🧠 Installing OPA..."
           curl -L -o opa $OPA_URL
-          chmod +x opa || true
-          # Example: run opa eval (adjust policy + data path to your repo if present)
-          # If you do not have OPA policies, create a dummy output to keep pipeline robust
-          if [ -f ./policy.rego ] ; then
-            ./opa eval -i . --format=json "data" > opa_result.json || echo '{"result":[{"expressions":[{"value":[]}] }]}' > opa_result.json
+          chmod +x opa
+          if [ -f ./policy.rego ]; then
+            ./opa eval -i . --format=json "data" > opa_result.json || echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
           else
-            echo "⚠️ No OPA policy found, creating dummy opa_result.json"
             echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
           fi
 
-      - name: Ensure OPA output exists
-        working-directory: ${{ env.TF_ROOT_DIR }}
-        run: |
-          if [ ! -s opa_result.json ]; then
-            echo "⚠️ opa_result.json not found or empty, creating dummy."
-            echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
-          fi
-
-      # --- Build unified compliance dashboard HTML (resilient) ---
-      - name: Build unified compliance dashboard
+      - name: 🧱 Build Unified Compliance Dashboard
         working-directory: ${{ env.TF_ROOT_DIR }}
         run: |
           echo "🧱 Building unified compliance dashboard..."
-          # Safe extraction and guardrails to avoid divide-by-zero or missing files
           PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
           FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
           SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
@@ -143,81 +115,41 @@ jobs:
           elif [ "$COMPLIANCE" -ge 40 ]; then GRADE="D"
           else GRADE="F"; fi
 
-          cat > compliance_dashboard.html <<'HTML'
+          cat > compliance_dashboard.html <<HTML
           <html><head><title>Unified DevSecOps Compliance Dashboard</title>
           <style>
-            body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
-            h1{text-align:center;color:#1a237e;}
-            h2{color:#0d47a1;margin-top:40px;}
-            table{border-collapse:collapse;width:60%;margin-bottom:20px;}
-            th,td{border:1px solid #ccc;padding:8px;text-align:left;}
-            th{background:#283593;color:white;}
-            .passed{color:green;font-weight:bold;}
-            .failed{color:red;font-weight:bold;}
-            .skipped{color:orange;font-weight:bold;}
-            .section{padding:20px;background:#fff;border-radius:10px;box-shadow:0 0 8px rgba(0,0,0,0.1);margin-bottom:30px;}
-            .pie{width:220px;height:220px;border-radius:50%;margin:20px auto;}
-            pre{background:#f8f9fa;border:1px solid #ccc;padding:10px;border-radius:6px;overflow:auto;max-height:500px;}
-          </style>
-          </head><body>
+          body{font-family:Arial,Helvetica,sans-serif;background:#f4f6f9;margin:30px;}
+          h1{text-align:center;color:#1a237e;}
+          table{border-collapse:collapse;width:60%;margin:auto;margin-top:20px;}
+          th,td{border:1px solid #ccc;padding:8px;text-align:left;}
+          th{background:#283593;color:white;}
+          .passed{color:green;font-weight:bold;}
+          .failed{color:red;font-weight:bold;}
+          .skipped{color:orange;font-weight:bold;}
+          .grade{text-align:center;margin:15px;font-size:18px;}
+          </style></head><body>
           <h1>🌐 Enterprise AKS DevSecOps Compliance Dashboard</h1>
-          <div class='section'>
-            <h2>✅ Checkov Terraform Security Summary</h2>
-            <table>
-              <tr><th>Status</th><th>Count</th></tr>
-              <tr><td class='passed'>✅ Passed</td><td>__PASSED__</td></tr>
-              <tr><td class='failed'>❌ Failed</td><td>__FAILED__</td></tr>
-              <tr><td class='skipped'>⚠️ Skipped</td><td>__SKIPPED__</td></tr>
-              <tr><td><b>Total</b></td><td><b>__TOTAL__</b></td></tr>
-            </table>
-            <h3>Detailed Checkov Results (JSON)</h3>
-            <pre>__CHECKOV_JSON__</pre>
-          </div>
-          <div class='section'>
-            <h2>🧠 OPA Policy Validation Summary</h2>
-            <p>Total Violations: <b class='failed'>__OPA__</b></p>
-            <h3>OPA Evaluation Output (JSON)</h3>
-            <pre>__OPA_JSON__</pre>
-          </div>
-          <div style='text-align:center;color:#555;margin-top:30px;'>
-            <hr><p>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
-          </div>
+          <div class='grade'><b>Compliance Grade:</b> ${GRADE} (${COMPLIANCE}%)</div>
+          <table>
+          <tr><th>Status</th><th>Count</th></tr>
+          <tr><td class='passed'>✅ Passed</td><td>${PASSED}</td></tr>
+          <tr><td class='failed'>❌ Failed</td><td>${FAILED}</td></tr>
+          <tr><td class='skipped'>⚠️ Skipped</td><td>${SKIPPED}</td></tr>
+          <tr><td><b>Total</b></td><td><b>${TOTAL}</b></td></tr>
+          </table>
+          <h2>OPA Policy Violations: ${OPA_VIOLATIONS}</h2>
+          <hr><p style='text-align:center;color:#777;'>Generated automatically by Enterprise AKS + DevSecOps CI/CD ✨</p>
           </body></html>
           HTML
 
-          # inject dynamic values
-          CHECKOV_JSON=$(jq -c '.' checkov_report.json)
-          OPA_JSON=$(jq -c '.' opa_result.json)
-          sed -i "s|__PASSED__|${PASSED}|g" compliance_dashboard.html
-          sed -i "s|__FAILED__|${FAILED}|g" compliance_dashboard.html
-          sed -i "s|__SKIPPED__|${SKIPPED}|g" compliance_dashboard.html
-          sed -i "s|__TOTAL__|${TOTAL}|g" compliance_dashboard.html
-          sed -i "s|__CHECKOV_JSON__|${CHECKOV_JSON}|g" compliance_dashboard.html
-          sed -i "s|__OPA__|${OPA_VIOLATIONS}|g" compliance_dashboard.html
-          sed -i "s|__OPA_JSON__|${OPA_JSON}|g" compliance_dashboard.html
+          echo "✅ compliance_dashboard.html generated successfully."
 
-          echo "✅ compliance_dashboard.html generated successfully"
-
-      - name: Upload compliance dashboard artifact
+      - name: 📤 Upload Compliance Dashboard
         uses: actions/upload-artifact@v4
         with:
           name: compliance-dashboard
           path: ${{ env.TF_ROOT_DIR }}/compliance_dashboard.html
 
-      # --- Optional: Fail the job if Checkov had failures (uncomment to enforce) ---
-      # - name: Fail on Checkov failures
-      #   working-directory: ${{ env.TF_ROOT_DIR }}
-      #   if: always()
-      #   run: |
-      #     FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
-      #     echo "Checkov failed count=${FAILED}"
-      #     if [ "$FAILED" -gt 0 ]; then
-      #       echo "Security policy violations detected by Checkov. Failing the job."
-      #       exit 1
-      #     fi
-
-      - name: Final status
-        run: |
-          echo "✅ Pipeline finished. Compliance dashboard uploaded as artifact (if present)."
-
+      - name: 🏁 Final Status
+        run: echo "✅ Pipeline completed successfully!"
 
