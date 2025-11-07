@@ -2,11 +2,9 @@ name: 🚀 Enterprise AKS + DevSecOps Platform CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -23,75 +21,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -------------------------------
-      # 1️⃣ Checkout source
-      # -------------------------------
+      # 1️⃣ Checkout Code
       - name: 🛠️ Checkout Repository
         uses: actions/checkout@v4
 
-      # -------------------------------
       # 2️⃣ Setup Terraform
-      # -------------------------------
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # -------------------------------
-      # 3️⃣ Azure Login (Service Principal)
-      # -------------------------------
+      # 3️⃣ Azure Login (Service Principal via JSON Creds)
       - name: 🔐 Azure Login (Service Principal)
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          auth-type: SERVICE_PRINCIPAL
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
           enable-AzPSSession: false
           environment: azurecloud
           allow-no-subscriptions: false
 
-      # -------------------------------
       # 4️⃣ Configure Terraform Azure Backend
-      # -------------------------------
       - name: 🌍 Configure Terraform Azure Backend Auth
         run: |
           echo "Setting up Terraform Azure backend authentication..."
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+          echo '${{ secrets.AZURE_CREDENTIALS }}' > creds.json
+          echo "ARM_CLIENT_ID=$(jq -r '.clientId' creds.json)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(jq -r '.clientSecret' creds.json)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(jq -r '.subscriptionId' creds.json)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(jq -r '.tenantId' creds.json)" >> $GITHUB_ENV
           echo "ARM_USE_OIDC=false" >> $GITHUB_ENV
+          rm creds.json
         shell: bash
 
-      # -------------------------------
       # 5️⃣ Terraform Init
-      # -------------------------------
       - name: 🚀 Terraform Init
         run: |
           cd ${{ env.TF_ROOT_DIR }}
           terraform init -upgrade
 
-      # -------------------------------
       # 6️⃣ Terraform Validate
-      # -------------------------------
       - name: 🧾 Terraform Validate
         run: |
           cd ${{ env.TF_ROOT_DIR }}
           terraform validate
 
-      # -------------------------------
       # 7️⃣ Terraform Plan
-      # -------------------------------
       - name: 📋 Terraform Plan
         run: |
           cd ${{ env.TF_ROOT_DIR }}
           terraform plan -out=tfplan
 
-      # -------------------------------
-      # 8️⃣ Security Scan (Checkov)
-      # -------------------------------
+      # 8️⃣ Run Checkov Security Scan
       - name: 🧠 Run Checkov Security Scan
         run: |
           docker run --rm \
@@ -101,18 +81,15 @@ jobs:
             --output json \
             --output-file-path /tf/checkov_report.json
 
-      # -------------------------------
       # 9️⃣ OPA Policy Validation
-      # -------------------------------
       - name: 🔍 Installing OPA and validating policies
         run: |
           curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
           chmod +x opa
-          ./opa eval --format=json --data project4-enterprise-aks-devops-platform/policies/opa --input checkov_report.json "data.terraform.policy.deny" > opa_result.json
+          ./opa eval --format=json --data project4-enterprise-aks-devops-platform/policies/opa \
+            --input checkov_report.json "data.terraform.policy.deny" > opa_result.json
 
-      # -------------------------------
       # 🔟 Unified Compliance Dashboard
-      # -------------------------------
       - name: 🧱 Building unified compliance dashboard
         run: |
           sudo apt-get update -qq && sudo apt-get install -y jq
@@ -123,7 +100,7 @@ jobs:
           echo "📂 WORK_DIR: $WORK_DIR"
           echo "📄 Target dashboard path: $DASHBOARD_PATH"
 
-          # --- Ensure JSON reports exist ---
+          # Ensure JSON reports exist
           [ ! -s checkov_report.json ] && echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
           [ ! -s opa_result.json ] && echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
 
@@ -135,7 +112,6 @@ jobs:
           OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null || echo 0)
           COMPLIANCE=$((100 * PASSED / TOTAL))
 
-          # --- Generate HTML Dashboard ---
           cat > "$DASHBOARD_PATH" <<EOF
           <html><head><title>Unified Compliance Dashboard</title>
           <style>
@@ -174,9 +150,7 @@ jobs:
           echo "✅ compliance_dashboard.html generated successfully"
         shell: bash
 
-      # -------------------------------
       # 11️⃣ Upload Dashboard Artifact
-      # -------------------------------
       - name: 📤 Upload Unified Compliance Dashboard
         uses: actions/upload-artifact@v4
         with:
