@@ -74,17 +74,14 @@ jobs:
           cp tfplan $GITHUB_WORKSPACE/tfplan
           echo "tfplan-file=tfplan" >> $GITHUB_OUTPUT
 
-      - name: 🧠 Run Checkov Security Scan (non-blocking)
-        continue-on-error: true
+      - name: 🧠 Run Checkov Security Scan
         run: |
           docker run --rm \
             -v "${{ github.workspace }}":/tf ghcr.io/bridgecrewio/checkov:latest \
             -d /tf/${{ env.TF_ROOT_DIR }} \
             --framework terraform \
-            --soft-fail-on LOW,MEDIUM \
             --output json \
             --output-file-path /tf/checkov_report.json
-
 
       - name: 🔍 Run OPA Policy Evaluation
         run: |
