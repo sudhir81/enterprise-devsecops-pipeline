@@ -1,8 +1,0 @@
-skip-check:
-  - CKV_AZURE_41  # Skip Azure diagnostic settings
-  - CKV_AZURE_33  # Skip Azure log retention check
-  - CKV2_AZURE_1  # Skip global resource naming rule
-
-soft_fail: false
-framework: terraform
-output: cli

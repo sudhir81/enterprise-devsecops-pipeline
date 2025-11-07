@@ -99,23 +99,4 @@ resource "azurerm_kubernetes_cluster" "aks" {
   })
 }
 
-# ============================================================
-# Outputs
-# ============================================================
-
-output "aks_cluster_name" {
-  description = "The name of the AKS cluster"
-  value       = azurerm_kubernetes_cluster.aks.name
-}
-
-output "acr_login_server" {
-  description = "The login server of the ACR"
-  value       = azurerm_container_registry.acr.login_server
-}
-
-output "aks_kube_config" {
-  description = "Kubeconfig (base64 encoded)"
-  value       = azurerm_kubernetes_cluster.aks.kube_admin_config_raw
-  sensitive   = true
-}
 
