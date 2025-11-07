@@ -1,9 +1,3 @@
-############################################################
-# main.tf - AKS (improved for Checkov / Azure best-practices)
-# Drop into: project4-enterprise-aks-devops-platform/infrastructure/aks/
-# Assumes variables are declared in variables.tf (same var names used).
-############################################################
-
 terraform {
   required_providers {
     azurerm = {
@@ -11,155 +5,117 @@ terraform {
       version = "~> 4.0"
     }
   }
+
+  required_version = ">= 1.3.0"
 }
 
 provider "azurerm" {
   features {}
 }
 
-# -------------------------
-# Resource Group (if not defined elsewhere)
-# -------------------------
+# ============================================================
+# Resource Group
+# ============================================================
 resource "azurerm_resource_group" "rg" {
   name     = var.rg_name
   location = var.location
-  tags = {
+
+  tags = merge(var.common_tags, {
     environment = var.environment
     owner       = var.owner != "" ? var.owner : "devops"
-  }
+  })
 }
 
-# -------------------------
-# Log Analytics Workspace (for AKS monitoring)
-# -------------------------
-resource "azurerm_log_analytics_workspace" "law" {
-  name                = "${var.prefix}-law-${var.environment}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  sku                 = "PerGB2018"
-  retention_in_days   = var.log_analytics_retention_days
-  tags = {
-    environment = var.environment
-  }
-}
-
-# -------------------------
-# Optional Disk Encryption Set ID (provide via var if you have one)
-# -------------------------
-# If you manage a disk encryption set and want AKS to use it set var.disk_encryption_set_id
-# Otherwise leave blank.
-locals {
-  disk_encryption_set_id = length(trim(var.disk_encryption_set_id)) > 0 ? var.disk_encryption_set_id : null
-}
-
-# -------------------------
-# Container Registry (ACR) - hardened defaults
-# -------------------------
+# ============================================================
+# Azure Container Registry (ACR)
+# ============================================================
 resource "azurerm_container_registry" "acr" {
   name                = var.acr_name
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  sku                 = var.acr_sku # e.g., Standard or Premium (required for geo-replication, scanning features)
-  admin_enabled       = false      # admin account disabled for security
+  sku                 = var.acr_sku
+  admin_enabled       = false
+  public_network_access_enabled = false
 
-  # optional: network_rule_set and public_network_enabled can be used to block public network
-  # if you want, set var.acr_public_network_enabled = false to restrict access via private endpoints
-  georeplication_locations = var.acr_georeplication_locations
-
-  tags = {
-    environment = var.environment
-  }
+  tags = var.common_tags
 }
 
-# -------------------------
-# AKS Cluster (compliant configuration)
-# -------------------------
+# ============================================================
+# Azure Kubernetes Cluster (AKS)
+# ============================================================
+
+locals {
+  disk_encryption_set_id = length(trim(var.disk_encryption_set_id, " ")) > 0 ? var.disk_encryption_set_id : null
+}
+
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = var.aks_cluster_name
+  name                = "${var.prefix}-${var.environment}-aks"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  dns_prefix          = "aks-${var.environment}-${var.prefix}"
+  dns_prefix          = "${var.prefix}-${var.environment}"
 
-  # Node pool (VMSS) - required by many policies
+  kubernetes_version = var.kubernetes_version
+
   default_node_pool {
-    name                       = "default"
-    node_count                 = var.aks_node_count
-    vm_size                    = var.aks_node_size
-    type                       = "VirtualMachineScaleSets"
-    max_pods                   = var.max_pods
-    os_disk_size_gb            = var.node_os_disk_size_gb
-    enable_node_public_ip      = false
-    vnet_subnet_id             = length(trim(var.node_subnet_id)) > 0 ? var.node_subnet_id : null
-    tags = {
-      role = "system"
-    }
+    name                = "default"
+    node_count          = var.aks_node_count
+    vm_size             = var.aks_node_size
+    enable_auto_scaling = true
+    min_count           = 1
+    max_count           = 3
+    enable_node_public_ip = false
+    os_disk_type        = "Ephemeral"
   }
 
-  # Managed Identity
   identity {
     type = "SystemAssigned"
   }
 
-  # Networking - Azure CNI (required by Checkov)
+  # Optional Disk Encryption
+  dynamic "disk_encryption_set_id" {
+    for_each = local.disk_encryption_set_id != null ? [1] : []
+    content {
+      id = local.disk_encryption_set_id
+    }
+  }
+
   network_profile {
-    network_plugin    = "azure"          # <--- Azure CNI (AKSPod IPs on vnet)
-    load_balancer_sku = "standard"
-    outbound_type     = var.outbound_type # e.g., "loadBalancer" or "userDefinedRouting"
+    network_plugin    = "azure"
+    network_policy    = "azure"
+    dns_service_ip    = "10.0.0.10"
+    service_cidr      = "10.0.0.0/16"
+    docker_bridge_cidr = "172.17.0.1/16"
   }
 
-  # Addons
-  addon_profile {
-    azure_policy {
-      enabled = true   # <--- satisfy CKV_AZURE_116 (Azure Policy add-on)
-    }
-    oms_agent {
-      enabled                    = true
-      log_analytics_workspace_id = azurerm_log_analytics_workspace.law.id
-    }
-    # optionally enable other addons (http_application_routing false by default)
+  private_cluster_enabled = var.private_cluster_enabled
+
+  # Add-on profiles
+  oms_agent {
+    log_analytics_workspace_id = var.log_analytics_workspace_id
   }
 
-  # API Server - consider private cluster in sensitive envs
-  api_server_authorized_ip_ranges = var.api_server_authorized_ip_ranges # [] for none, or provide list
-  private_cluster_enabled         = var.private_cluster_enabled
-
-  # Enable RBAC for CKV_AZURE_5
-  role_based_access_control {
-    enabled = true
-  }
-
-  kubernetes_version = var.kubernetes_version
-
-  # Ensure control plane is on paid SKU if needed (this is Azure-managed; audit tools expect certain settings)
-  sku_tier = var.sku_tier # "Free" or "Paid" - set to "Paid" for production SLA
-
-  # Disk encryption set for nodes (optional)
-  disk_encryption_set_id = local.disk_encryption_set_id
-
-  # Tags
-  tags = merge(
-    {
-      environment = var.environment
-      managed_by  = "github-actions"
-    },
-    var.common_tags
-  )
-
-  # Optionally enable API server authorized IPs (set via var)
-  # kubernetes_cluster_autoscaler_profile or upgrade channel can be added here if you want auto-upgrades
-  automatic_channel_upgrade       = var.automatic_channel_upgrade
-  automatic_upgrade_channel       = var.automatic_upgrade_channel
+  tags = merge(var.common_tags, {
+    environment = var.environment
+  })
 }
 
-# -------------------------
-# Role assignment to allow ACR pull (if ACR in same subscription)
-# This grants pull permission to cluster's identity (if you want automated image pulls)
-# -------------------------
-resource "azurerm_role_assignment" "acr_pull" {
-  scope                = azurerm_container_registry.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-  depends_on           = [azurerm_kubernetes_cluster.aks]
+# ============================================================
+# Outputs
+# ============================================================
+
+output "aks_cluster_name" {
+  description = "The name of the AKS cluster"
+  value       = azurerm_kubernetes_cluster.aks.name
 }
 
+output "acr_login_server" {
+  description = "The login server of the ACR"
+  value       = azurerm_container_registry.acr.login_server
+}
+
+output "aks_kube_config" {
+  description = "Kubeconfig (base64 encoded)"
+  value       = azurerm_kubernetes_cluster.aks.kube_admin_config_raw
+  sensitive   = true
+}
 

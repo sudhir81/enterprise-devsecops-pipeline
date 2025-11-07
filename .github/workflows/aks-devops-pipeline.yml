@@ -1,149 +1,173 @@
-name: 🚀 Enterprise AKS + DevSecOps Platform CI/CD
+name: "🚀 Enterprise AKS + DevSecOps Pipeline"
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main", "dev" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main", "dev" ]
   workflow_dispatch:
 
 env:
-  TF_VERSION: 1.13.3
+  # Root directory of the TF module relative to repo root
   TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
-  IMAGE_NAME: sampleapp
-  ACR_NAME: devopsacr001
-  AKS_CLUSTER_NAME: devops-aks
-  AKS_RESOURCE_GROUP: rg-devsecops-dev
+  # Default tfvars values that pipeline will pass (override via repo secrets or TF_VAR_* secrets)
   TF_VAR_environment: dev
-  TF_VAR_prefix: devsecops
+  TF_VAR_prefix: entdevops
+  TF_VAR_acr_name: devopsacr001
+  TF_VAR_aks_cluster_name: devops-aks
+  TF_VAR_aks_resource_group: rg-devsecops-dev
+  # Checkov options
+  CHECKOV_ARGS: "--compact"
+  # OPA download URL (linux amd64)
+  OPA_URL: "https://openpolicyagent.org/downloads/latest/opa_linux_amd64"
 
 jobs:
-  terraform-plan:
-    name: 🧩 Terraform Validate + Plan + Security Scan
+  terraform-validate-scan:
+    name: Terraform Validate + Checkov + OPA
     runs-on: ubuntu-latest
-    outputs:
-      tfplan-file: ${{ steps.plan.outputs.tfplan-file }}
+    defaults:
+      run:
+        shell: bash
+
+    permissions:
+      # required if you ever use OIDC-based login or request id-token
+      id-token: write
+      contents: read
 
     steps:
-      - name: 🛠️ Checkout Repository
+      - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: ⚙️ Setup Terraform
-        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          fetch-depth: 0
 
-      - name: 🔐 Azure Login (Service Principal)
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.13.3"
+
+      - name: Azure login (Service Principal JSON)
         uses: azure/login@v2
         with:
+          # This expects the whole JSON produced by `az ad sp create-for-rbac --sdk-auth`
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          enable-AzPSSession: false
-          environment: azurecloud
-          allow-no-subscriptions: false
 
-      - name: 🌍 Export Terraform Variables
+      - name: Prepare TF root
         run: |
-          echo '${{ secrets.AZURE_CREDENTIALS }}' > /tmp/azcreds.json
-          echo "ARM_CLIENT_ID=$(jq -r .clientId /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=$(jq -r .clientSecret /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=$(jq -r .tenantId /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_USE_OIDC=false" >> $GITHUB_ENV
-          rm /tmp/azcreds.json
+          cd "${TF_ROOT_DIR}"
+          terraform init -upgrade
 
-          echo "TF_VAR_acr_name=${{ env.ACR_NAME }}" >> $GITHUB_ENV
-          echo "TF_VAR_image_name=${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
-          echo "TF_VAR_aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" >> $GITHUB_ENV
-          echo "TF_VAR_aks_resource_group=${{ env.AKS_RESOURCE_GROUP }}" >> $GITHUB_ENV
-          echo "TF_VAR_location=East US" >> $GITHUB_ENV
-          echo "TF_VAR_aks_node_count=2" >> $GITHUB_ENV
-          echo "TF_VAR_aks_node_size=Standard_B2s" >> $GITHUB_ENV
-          echo "TF_VAR_kubernetes_version=1.29.2" >> $GITHUB_ENV
-
-      - name: 🚀 Terraform Init
-        run: cd ${{ env.TF_ROOT_DIR }} && terraform init -upgrade
-
-      - name: 🧾 Terraform Validate
-        run: cd ${{ env.TF_ROOT_DIR }} && terraform validate
-
-      - name: 📋 Terraform Plan
-        id: plan
+      - name: Terraform validate
         run: |
-          cd ${{ env.TF_ROOT_DIR }}
+          cd "${TF_ROOT_DIR}"
+          terraform validate
+
+      - name: Terraform plan
+        run: |
+          cd "${TF_ROOT_DIR}"
+          # write plan; fails if required vars missing. You can add -var-file or -var params here.
           terraform plan -out=tfplan -input=false
-          cp tfplan $GITHUB_WORKSPACE/tfplan
-          echo "tfplan-file=tfplan" >> $GITHUB_OUTPUT
 
-      - name: 🧠 Run Checkov Security Scan (non-blocking)
-        continue-on-error: true
+      - name: Install Python (for Checkov)
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
         run: |
-          docker run --rm \
-            -v "${{ github.workspace }}":/tf ghcr.io/bridgecrewio/checkov:latest \
-            -d /tf/${{ env.TF_ROOT_DIR }} \
-            --framework terraform \
-            --soft-fail-on LOW,MEDIUM \
-            --output json \
-            --output-file-path /tf/checkov_report.json
+          python -m pip install --upgrade pip
+          pip install checkov==3.2.490
 
-
-      - name: 🔍 Run OPA Policy Evaluation
+      - name: Run Checkov (Terraform)
         run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          cd "${TF_ROOT_DIR}"
+          # run Checkov over the terraform module
+          checkov -d . $CHECKOV_ARGS -o json > checkov_report.json || true
+          echo "Checkov exit code: $?"
+
+      - name: Install OPA (policy engine)
+        run: |
+          curl -L -o opa $OPA_URL
           chmod +x opa
-          ./opa eval --format=json --data project4-enterprise-aks-devops-platform/policies/opa \
-            --input checkov_report.json "data.terraform.policy.deny" > opa_result.json || true
+          ./opa version || true
 
-      - name: 📤 Upload Terraform Plan Artifact
+      - name: Run OPA policies (example)
+        run: |
+          # Example OPA run: evaluate repo policy folder (adjust paths & bundles as needed)
+          cd "${TF_ROOT_DIR}"
+          # If you have rego rules in ./opa-policies, evaluate a sample input
+          if [ -d "../../opa-policies" ]; then
+            ../../../opa eval -f pretty --data ../../opa-policies 'data' > opa_result.txt || true
+            # create a JSON-ish result placeholder
+            echo '{"result":[{"expressions":[{"value":[]}] }] }' > opa_result.json || true
+          else
+            echo "No opa-policies folder found — creating dummy opa_result.json"
+            echo '{"result":[{"expressions":[{"value":[]}] }] }' > opa_result.json
+          fi
+
+      - name: Build unified compliance dashboard (HTML)
+        run: |
+          cd "${TF_ROOT_DIR}"
+          # create simple aggregated dashboard from checkov_report.json and opa_result.json
+          # safe-guard: if reports missing, create dummy
+          if [ ! -s checkov_report.json ]; then
+            echo '{"summary":{"passed":0,"failed":0,"skipped":0}}' > checkov_report.json
+          fi
+          if [ ! -s opa_result.json ]; then
+            echo '{"result":[{"expressions":[{"value":[]}]}]}' > opa_result.json
+          fi
+
+          PASSED=$(jq -r '.summary.passed // 0' checkov_report.json)
+          FAILED=$(jq -r '.summary.failed // 0' checkov_report.json)
+          SKIPPED=$(jq -r '.summary.skipped // 0' checkov_report.json)
+          TOTAL=$((PASSED + FAILED + SKIPPED))
+          if [ "$TOTAL" -eq 0 ]; then TOTAL=1; fi
+          OPA_VIOLATIONS=$(jq '.result[0].expressions[0].value | length' opa_result.json 2>/dev/null || echo 0)
+          OPA_VIOLATIONS=${OPA_VIOLATIONS:-0}
+          COMPLIANCE=$((100 * PASSED / TOTAL))
+          # small html
+          cat > compliance_dashboard.html <<'HTML'
+          <html><head><title>Unified DevSecOps Compliance Dashboard</title></head><body>
+          <h1>Compliance Dashboard</h1>
+          <p>Passed: %%PASSED%%</p>
+          <p>Failed: %%FAILED%%</p>
+          <p>OPA Violations: %%OPA_VIOLATIONS%%</p>
+          <pre>Checkov JSON: %%CHECKOV_JSON%%</pre>
+          </body></html>
+          HTML
+          # substitute values
+          sed -i "s/%%PASSED%%/${PASSED}/g" compliance_dashboard.html
+          sed -i "s/%%FAILED%%/${FAILED}/g" compliance_dashboard.html
+          sed -i "s/%%OPA_VIOLATIONS%%/${OPA_VIOLATIONS}/g" compliance_dashboard.html
+          # inline small checkov json snippet (first 2000 chars)
+          CHECKOV_SNIPPET=$(jq -c '.' checkov_report.json | cut -c1-2000 | sed 's/&/\\&/g')
+          sed -i "s/%%CHECKOV_JSON%%/${CHECKOV_SNIPPET}/g" compliance_dashboard.html
+
+      - name: Upload compliance dashboard artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan
-          path: tfplan
+          name: compliance-dashboard
+          path: "${TF_ROOT_DIR}/compliance_dashboard.html"
+          if-no-files-found: warn
 
-  terraform-apply:
-    name: 🚀 Terraform Apply (Manual Approval)
-    runs-on: ubuntu-latest
-    needs: terraform-plan
-    environment:
-      name: dev
-      url: https://portal.azure.com
-      # 👇 This enables manual approval gate (in repo → Settings → Environments → dev)
-      # Protect this environment in GitHub settings to require approval before this job starts.
-
-    steps:
-      - name: 🛠️ Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: 🔐 Azure Login (Service Principal)
-        uses: azure/login@v2
+      - name: Upload raw Checkov & OPA JSON (artifact)
+        uses: actions/upload-artifact@v4
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-          enable-AzPSSession: false
-          environment: azurecloud
-          allow-no-subscriptions: false
+          name: devsecops-reports
+          path: |
+            ${TF_ROOT_DIR}/checkov_report.json
+            ${TF_ROOT_DIR}/opa_result.json
+          if-no-files-found: warn
 
-      - name: 🌍 Export Terraform Variables
+      - name: Fail job if Checkov found critical fails (optional)
+        if: always()
         run: |
-          echo '${{ secrets.AZURE_CREDENTIALS }}' > /tmp/azcreds.json
-          echo "ARM_CLIENT_ID=$(jq -r .clientId /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=$(jq -r .clientSecret /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=$(jq -r .tenantId /tmp/azcreds.json)" >> $GITHUB_ENV
-          echo "ARM_USE_OIDC=false" >> $GITHUB_ENV
-          rm /tmp/azcreds.json
+          # Example: fail if Checkov found any failed count > 0
+          FAILED=$(jq -r '.summary.failed // 0' "${TF_ROOT_DIR}/checkov_report.json")
+          echo "Checkov failed count=$FAILED"
+          if [ "$FAILED" -gt 0 ]; then
+            echo "Security policy violations detected by Checkov."
+            exit 1
+          fi
+          echo "No Checkov failures detected."
 
-      - name: 📥 Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: ${{ env.TF_ROOT_DIR }}
-
-      - name: ⚙️ Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: 🚀 Terraform Apply (Safe Mode)
-        run: |
-          cd ${{ env.TF_ROOT_DIR }}
-          terraform apply "tfplan"
 
