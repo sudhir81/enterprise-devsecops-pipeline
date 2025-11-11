@@ -169,7 +169,7 @@ From your GitHub repo:
 | `require_tags.rego`      | Enforces required resource tags         | Missing `Owner` tag                  |
 
 ---
-
+```
 ## 🧠 Typical Workflow Execution
 
 1️⃣ **Developer commits Terraform changes**
@@ -179,7 +179,7 @@ From your GitHub repo:
 5️⃣ **Policy checks via OPA**
 6️⃣ **Approval gate before Apply**
 7️⃣ **Deployed securely to Azure**
-
+```
 ---
 
 ## 🧪 Example Output
@@ -213,6 +213,7 @@ Sudhir Dalvi
 💼 Cloud & DevOps Engineer | Terraform | Azure | DevSecOps.                      
 🔗 [GitHub: sudhir81](https://github.com/sudhir81).                             
 📈 https://www.linkedin.com/in/sudhir-dalvi-0591a95a/
+
 
 
 
