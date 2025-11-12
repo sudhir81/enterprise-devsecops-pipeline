@@ -71,16 +71,20 @@ jobs:
           cd $TF_ROOT_DIR
           terraform validate
 
-      # 🧮 Terraform Plan (inline secrets injection)
+      # 🔍 Debug: Verify secrets before Terraform
+      - name: 🔍 Debug Secret Visibility
+        run: |
+          echo "DEBUG: Checking secret values..."
+          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
+          echo "AZURE_CLIENT_SECRET=**** (masked)"
+
+      # 🧮 Terraform Plan (inline explicit vars)
       - name: 🧮 Terraform Plan
         run: |
           cd $TF_ROOT_DIR
-          echo "🔎 Debugging secret visibility..."
-          echo "SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
-          echo "TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
-          echo "✅ Secrets confirmed. Running Terraform plan..."
-
+          echo "✅ Running Terraform Plan with inline vars..."
           terraform plan -out=tfplan -input=false \
             -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
             -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
@@ -97,7 +101,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 🚀 Terraform Apply (inline secrets injection)
+      # 🚀 Terraform Apply (inline explicit vars)
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
@@ -113,3 +117,13 @@ jobs:
         with:
           name: aks-outputs
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
+
+      # 🎉 Deployment Summary
+      - name: 🎉 Deployment Summary
+        run: |
+          echo "✅ AKS Deployment Completed Successfully!"
+          echo "------------------------------------------"
+          echo "Cluster: devops-aks"
+          echo "Resource Group: rg-devsecops-dev"
+          echo "Environment: dev"
+          echo "------------------------------------------"
