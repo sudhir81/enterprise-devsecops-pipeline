@@ -1,45 +1,49 @@
-# ----------------------------
-#  Azure AKS Infrastructure Variables
-# ----------------------------
-
-variable "rg_name" {
-  description = "Name of the Resource Group"
+  variable "rg_name" {
+  description = "Name of the Azure Resource Group"
   type        = string
-  default     = "rg-devsecops-dev"
 }
 
 variable "location" {
-  description = "Azure location for resources"
+  description = "Azure region for deployment"
   type        = string
-  default     = "East US"
-}
-
-variable "owner" {
-  description = "Owner tag"
-  type        = string
-  default     = "sudhir"
+  default     = "eastus"
 }
 
 variable "environment" {
-  description = "Deployment environment"
+  description = "Deployment environment (dev, preprod, prod)"
   type        = string
   default     = "dev"
 }
 
+variable "owner" {
+  description = "Owner or team responsible for resources"
+  type        = string
+  default     = "sudhir"
+}
+
 variable "prefix" {
-  description = "Prefix for naming resources"
+  description = "Prefix for all resource names"
   type        = string
   default     = "entdevops"
 }
 
-variable "aks_cluster_name" {
-  description = "AKS cluster name"
+variable "acr_name" {
+  description = "Azure Container Registry name"
   type        = string
-  default     = "devops-aks"
+}
+
+variable "aks_cluster_name" {
+  description = "Azure Kubernetes Service cluster name"
+  type        = string
+}
+
+variable "aks_resource_group" {
+  description = "Resource group for AKS"
+  type        = string
 }
 
 variable "aks_node_count" {
-  description = "Number of nodes in the default node pool"
+  description = "Number of nodes in the AKS cluster"
   type        = number
   default     = 1
 }
@@ -51,33 +55,7 @@ variable "aks_node_size" {
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version"
+  description = "Version of Kubernetes to use for the cluster"
   type        = string
-  default     = "1.29.0"
-}
-
-variable "disk_encryption_set_id" {
-  description = "Optional disk encryption set ID"
-  type        = string
-  default     = ""
-}
-variable "subscription_id" {
-  description = "Azure Subscription ID"
-  type        = string
-}
-
-variable "client_id" {
-  description = "Azure Service Principal Client ID"
-  type        = string
-}
-
-variable "client_secret" {
-  description = "Azure Service Principal Client Secret"
-  type        = string
-  sensitive   = true
-}
-
-variable "tenant_id" {
-  description = "Azure Tenant ID"
-  type        = string
+  default     = "1.30.3"
 }
