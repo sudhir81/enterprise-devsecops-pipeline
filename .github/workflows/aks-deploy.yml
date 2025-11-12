@@ -29,7 +29,7 @@ jobs:
       TF_VAR_rg_name: rg-devsecops-dev
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
-      # ✅ Azure Credentials for Terraform Provider
+      # 💾 Azure Credentials for Terraform Provider
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
       TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -46,7 +46,7 @@ jobs:
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 🔐 Azure Login (Service Principal)
+      # 🔐 Azure Login
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
@@ -64,6 +64,15 @@ jobs:
           echo "🔍 Checking Azure authentication..."
           az account show --output table
           echo "✅ Azure authentication successful!"
+
+      # 🧩 Debug Environment Variables
+      - name: 🧠 Debug: Print Terraform + Azure Environment Variables
+        run: |
+          echo "🔧 Listing all Terraform-related environment variables..."
+          env | grep -E 'TF_VAR_|ARM_' || echo "⚠️ No Terraform/Azure vars found!"
+          echo ""
+          echo "🔎 Checking Azure CLI context..."
+          az account show --query "{subscriptionId:id, tenantId:tenantId}" --output table
 
       # ⚙️ Setup Terraform
       - name: ⚙️ Setup Terraform
