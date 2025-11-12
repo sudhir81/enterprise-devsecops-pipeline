@@ -1,4 +1,4 @@
-name: 🚀 AKS Deploy Pipeline (Final Verified)
+name: 🚀 AKS Deploy Pipeline (Final + Plan Summary)
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
       url: https://portal.azure.com
 
     env:
-      # 🌍 Terraform Paths
+      # 🌍 Terraform Directories
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
@@ -38,7 +38,7 @@ jobs:
       TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
       TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
 
-      # 👇 Optional (for direct provider compatibility)
+      # 👇 Required for Terraform Azure Provider
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -49,28 +49,25 @@ jobs:
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Azure Login
+      # 2️⃣ Azure Login (Flat parameters)
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
-          creds: >
-            {
-              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
-              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
-              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
-              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
-            }
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
-      # 3️⃣ Verify Connection and Secrets
+      # 3️⃣ Verify Azure and Secret Injection
       - name: 🧾 Verify Terraform Vars Exist
         run: |
-          echo "Checking if secrets are being passed into environment..."
+          echo "🔍 Checking if secrets are passed into environment..."
           env | grep TF_VAR_ || echo "❌ No TF_VAR_* secrets found!"
           echo "-----------------------------------"
           echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
           echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
-          echo "✅ Secret injection step complete."
+          echo "✅ Secret injection confirmed."
 
       # 4️⃣ Setup Terraform
       - name: ⚙️ Setup Terraform
@@ -92,11 +89,32 @@ jobs:
 
       # 7️⃣ Terraform Plan
       - name: 🧮 Terraform Plan
+        id: tfplan
         run: |
           cd $TF_ROOT_DIR
           terraform plan -out=tfplan -input=false
+          terraform show -no-color tfplan > tfplan.txt
 
-      # 8️⃣ Manual Approval
+      # 8️⃣ Upload Terraform Plan (for download)
+      - name: 📦 Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_ROOT_DIR }}/tfplan.txt
+
+      # 9️⃣ Display Plan Summary in GitHub Actions UI
+      - name: 🪶 Add Terraform Plan Summary
+        run: |
+          echo "### Terraform Plan Summary 📋" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`terraform" >> $GITHUB_STEP_SUMMARY
+          head -n 50 $TF_ROOT_DIR/tfplan.txt >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "...(full plan uploaded as artifact)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Plan summary added to Actions UI."
+
+      # 🔟 Manual Approval
       - name: ⏳ Manual Approval before Apply
         uses: trstringer/manual-approval@v1
         with:
@@ -106,15 +124,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 9️⃣ Terraform Apply
+      # 11️⃣ Terraform Apply
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
-      # 🔟 Upload Terraform State
+      # 12️⃣ Upload Terraform State
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
           name: aks-outputs
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
+
+      # ✅ 13️⃣ Success Summary
+      - name: 🎉 Deployment Summary
+        if: success()
+        run: |
+          echo "-----------------------------------"
+          echo "✅ AKS Deployment Completed Successfully!"
+          echo "🌍 Environment: ${{ github.event.inputs.environment }}"
+          echo "-----------------------------------"
