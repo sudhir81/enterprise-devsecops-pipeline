@@ -1,102 +1,70 @@
 terraform {
+  required_version = ">= 1.3.0"
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
       version = "~> 4.0"
     }
   }
-
-  required_version = ">= 1.3.0"
 }
 
 provider "azurerm" {
   features {}
 }
 
-# ============================================================
-# Resource Group
-# ============================================================
+# 🔹 Resource Group
 resource "azurerm_resource_group" "rg" {
   name     = var.rg_name
   location = var.location
 
-  tags = merge(var.common_tags, {
+  tags = {
     environment = var.environment
-    owner       = var.owner != "" ? var.owner : "devops"
-  })
+    owner       = var.owner
+  }
 }
 
-# ============================================================
-# Azure Container Registry (ACR)
-# ============================================================
-resource "azurerm_container_registry" "acr" {
-  name                = var.acr_name
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  sku                 = var.acr_sku
-  admin_enabled       = false
-  public_network_access_enabled = false
-
-  tags = var.common_tags
-}
-
-# ============================================================
-# Azure Kubernetes Cluster (AKS)
-# ============================================================
-
-locals {
-  disk_encryption_set_id = length(trim(var.disk_encryption_set_id, " ")) > 0 ? var.disk_encryption_set_id : null
-}
-
+# 🔹 AKS Cluster
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "${var.prefix}-${var.environment}-aks"
+  name                = var.aks_cluster_name
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  dns_prefix          = "${var.prefix}-${var.environment}"
-
-  kubernetes_version = var.kubernetes_version
+  dns_prefix          = "${var.prefix}-aks"
 
   default_node_pool {
-    name                = "default"
-    node_count          = var.aks_node_count
-    vm_size             = var.aks_node_size
-    enable_auto_scaling = true
-    min_count           = 1
-    max_count           = 3
-    enable_node_public_ip = false
-    os_disk_type        = "Ephemeral"
+    name                 = "default"
+    vm_size              = var.aks_node_size
+    node_count           = var.aks_node_count
+    auto_scaling_enabled = true
+    min_count            = 1
+    max_count            = 3
   }
 
   identity {
     type = "SystemAssigned"
   }
 
-  # Optional Disk Encryption
-  dynamic "disk_encryption_set_id" {
-    for_each = local.disk_encryption_set_id != null ? [1] : []
-    content {
-      id = local.disk_encryption_set_id
-    }
-  }
-
   network_profile {
-    network_plugin    = "azure"
-    network_policy    = "azure"
-    dns_service_ip    = "10.0.0.10"
-    service_cidr      = "10.0.0.0/16"
-    docker_bridge_cidr = "172.17.0.1/16"
+    network_plugin = "azure"
+    network_policy = "azure"
+    service_cidr   = "10.0.0.0/16"
+    dns_service_ip = "10.0.0.10"
+    outbound_type  = "loadBalancer"
   }
 
-  private_cluster_enabled = var.private_cluster_enabled
+  kubernetes_version = var.kubernetes_version
 
-  # Add-on profiles
-  oms_agent {
-    log_analytics_workspace_id = var.log_analytics_workspace_id
-  }
-
-  tags = merge(var.common_tags, {
+  tags = {
     environment = var.environment
-  })
+    owner       = var.owner
+  }
 }
 
+# 🔹 Outputs
+output "aks_cluster_name" {
+  value = azurerm_kubernetes_cluster.aks.name
+}
 
+output "aks_kube_config" {
+  value     = azurerm_kubernetes_cluster.aks.kube_config_raw
+  sensitive = true
+}
