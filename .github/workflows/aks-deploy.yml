@@ -29,8 +29,19 @@ jobs:
       TF_VAR_rg_name: rg-devsecops-dev
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
+      # ✅ Inject Azure Secrets for Terraform provider
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+      TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+
+      # ✅ Also set ARM_* (for azurerm provider auto auth)
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
     steps:
-      # 📦 Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
@@ -38,7 +49,7 @@ jobs:
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
-          creds: |
+          creds: >
             {
               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
@@ -49,7 +60,7 @@ jobs:
       # 🔎 Verify Azure Connection
       - name: 🔎 Verify Azure Connection
         run: |
-          echo "🔍 Checking Azure authentication..."
+          echo "Checking Azure authentication..."
           az account show --output table
           echo "✅ Azure authentication successful!"
 
@@ -71,11 +82,10 @@ jobs:
           cd $TF_ROOT_DIR
           terraform validate
 
-      # 🧮 Terraform Plan (Inject Secrets Inline)
+      # 🧮 Terraform Plan (explicitly pass vars to fix your issue)
       - name: 🧮 Terraform Plan
         run: |
           cd $TF_ROOT_DIR
-          echo "🔐 Injecting credentials inline..."
           terraform plan -out=tfplan -input=false \
             -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
             -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
@@ -92,20 +102,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 🚀 Terraform Apply (Inject Secrets Inline)
+      # 🚀 Terraform Apply
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
-          echo "🔐 Re-injecting credentials inline for Apply..."
-          terraform apply -auto-approve tfplan \
-            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+          terraform apply -auto-approve tfplan
 
-      # 📤 Upload Terraform State Artifact
+      # 📤 Upload AKS Outputs
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
-          name: aks-terraform-state
+          name: aks-outputs
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
