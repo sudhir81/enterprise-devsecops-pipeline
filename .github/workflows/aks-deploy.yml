@@ -55,28 +55,25 @@ jobs:
         with:
           terraform_version: 1.13.3
 
-      # ✅ Explicitly export secrets before Terraform commands
-      - name: 🧠 Export Azure Secrets for Terraform
+      - name: 🧩 Terraform Init
         run: |
-          echo "Exporting TF_VAR_ and ARM_ credentials..."
-          export TF_VAR_subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          export TF_VAR_client_id=${{ secrets.AZURE_CLIENT_ID }}
-          export TF_VAR_client_secret=${{ secrets.AZURE_CLIENT_SECRET }}
-          export TF_VAR_tenant_id=${{ secrets.AZURE_TENANT_ID }}
-          export ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          export ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}
-          export ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}
-          export ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}
-          
-          echo "Verifying credentials in environment..."
-          env | grep TF_VAR_ || echo "⚠️ TF_VAR variables not found!"
-          env | grep ARM_ || echo "⚠️ ARM variables not found!"
-          
           cd $TF_ROOT_DIR
-          echo "🚀 Running Terraform init + plan..."
           terraform init -upgrade
+
+      - name: ✅ Terraform Validate
+        run: |
+          cd $TF_ROOT_DIR
           terraform validate
-          terraform plan -out=tfplan -input=false
+
+      - name: 🧮 Terraform Plan
+        run: |
+          cd $TF_ROOT_DIR
+          echo "🔐 Injecting credentials inline..."
+          terraform plan -out=tfplan -input=false \
+            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
+            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
 
       - name: ⏳ Manual Approval before Apply
         uses: trstringer/manual-approval@v1
