@@ -19,16 +19,26 @@ jobs:
       url: https://portal.azure.com
 
 env:
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+  TF_VAR_environment: dev
+  TF_VAR_prefix: entdevops
+  TF_VAR_acr_name: devopsacr001
+  TF_VAR_image_name: sampleapp
+  TF_VAR_aks_cluster_name: devops-aks
+  TF_VAR_aks_resource_group: rg-devsecops-dev
+  OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
+  # 💾 Azure Credentials for Terraform Provider
+  TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
   TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-  TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-    steps:
+
+  # 👇 Optional (but helps Terraform provider auto-pick creds)
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}    steps:
       # 📦 Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
