@@ -29,20 +29,20 @@ jobs:
       TF_VAR_rg_name: rg-devsecops-dev
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
-      # 💾 Azure Credentials for Terraform Provider
+      # ✅ Azure Credentials for Terraform Provider
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
       TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
       TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
 
-      # 👇 Optional (helps Terraform auto-pick creds)
+      # 👇 AzureRM Provider compatibility
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
-      # 📦 Checkout Repository
+      # 📦 Checkout
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
@@ -50,7 +50,7 @@ jobs:
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
-          creds: >
+          creds: |
             {
               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
@@ -61,7 +61,7 @@ jobs:
       # 🔎 Verify Azure Connection
       - name: 🔎 Verify Azure Connection
         run: |
-          echo "Checking Azure authentication..."
+          echo "🔍 Checking Azure authentication..."
           az account show --output table
           echo "✅ Azure authentication successful!"
 
@@ -105,9 +105,9 @@ jobs:
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
-      # 📤 Upload AKS Outputs
+      # 📤 Upload Terraform State Artifact
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
-          name: aks-outputs
+          name: aks-terraform-state
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
