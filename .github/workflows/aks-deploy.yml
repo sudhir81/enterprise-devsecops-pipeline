@@ -26,6 +26,7 @@ jobs:
       TF_VAR_image_name: sampleapp
       TF_VAR_aks_cluster_name: devops-aks
       TF_VAR_aks_resource_group: rg-devsecops-dev
+      TF_VAR_rg_name: rg-devsecops-dev        # ✅ Added line for RG name
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
       # 💾 Azure Credentials for Terraform Provider
@@ -34,20 +35,22 @@ jobs:
       TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
       TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
 
-      # 👇 Also export for AzureRM provider
+      # 👇 Optional (helps Terraform auto-pick creds)
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
+      # 📦 Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
+      # 🔐 Azure Login (Service Principal)
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
-          creds: |
+          creds: >
             {
               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
@@ -55,32 +58,38 @@ jobs:
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
 
+      # 🔎 Verify Azure Connection
       - name: 🔎 Verify Azure Connection
         run: |
           echo "Checking Azure authentication..."
           az account show --output table
           echo "✅ Azure authentication successful!"
 
+      # ⚙️ Setup Terraform
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
+      # 🧩 Terraform Init
       - name: 🧩 Terraform Init
         run: |
           cd $TF_ROOT_DIR
           terraform init -upgrade
 
+      # ✅ Terraform Validate
       - name: ✅ Terraform Validate
         run: |
           cd $TF_ROOT_DIR
           terraform validate
 
+      # 🧮 Terraform Plan
       - name: 🧮 Terraform Plan
         run: |
           cd $TF_ROOT_DIR
           terraform plan -out=tfplan -input=false
 
+      # ⏳ Manual Approval before Apply
       - name: ⏳ Manual Approval before Apply
         uses: trstringer/manual-approval@v1
         with:
@@ -90,11 +99,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 🚀 Terraform Apply
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
+      # 📤 Upload AKS Outputs
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
