@@ -1,4 +1,4 @@
-name: 🚀 AKS Deploy Pipeline (Final Version)
+name: 🚀 AKS Deploy Pipeline (Final Verified)
 
 on:
   workflow_dispatch:
@@ -19,7 +19,11 @@ jobs:
       url: https://portal.azure.com
 
     env:
+      # 🌍 Terraform Paths
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+      OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
+
+      # 🧩 Terraform Variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -27,23 +31,25 @@ jobs:
       TF_VAR_aks_cluster_name: devops-aks
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
-      OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
-      # Azure Credentials
+      # 💾 Azure Credentials for Terraform Provider
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
       TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
       TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
 
+      # 👇 Optional (for direct provider compatibility)
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
+      # 1️⃣ Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Azure Login
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
@@ -55,6 +61,7 @@ jobs:
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
 
+      # 3️⃣ Verify Connection and Secrets
       - name: 🧾 Verify Terraform Vars Exist
         run: |
           echo "Checking if secrets are being passed into environment..."
@@ -65,36 +72,47 @@ jobs:
           echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
           echo "✅ Secret injection step complete."
 
+      # 4️⃣ Setup Terraform
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
+      # 5️⃣ Terraform Init
       - name: 🧩 Terraform Init
         run: |
           cd $TF_ROOT_DIR
           terraform init -upgrade
 
+      # 6️⃣ Terraform Validate
       - name: ✅ Terraform Validate
         run: |
           cd $TF_ROOT_DIR
           terraform validate
 
-      - name: 🧮 Terraform Plan (explicit vars for debug)
+      # 7️⃣ Terraform Plan
+      - name: 🧮 Terraform Plan
         run: |
           cd $TF_ROOT_DIR
-          terraform plan -out=tfplan -input=false \
-            -var "subscription_id=${TF_VAR_subscription_id}" \
-            -var "client_id=${TF_VAR_client_id}" \
-            -var "client_secret=${TF_VAR_client_secret}" \
-            -var "tenant_id=${TF_VAR_tenant_id}"
+          terraform plan -out=tfplan -input=false
 
+      # 8️⃣ Manual Approval
+      - name: ⏳ Manual Approval before Apply
+        uses: trstringer/manual-approval@v1
+        with:
+          approvers: sudhir81
+          minimum-approvals: 1
+          timeout-minutes: 30
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 9️⃣ Terraform Apply
       - name: 🚀 Terraform Apply
-        if: success()
         run: |
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
+      # 🔟 Upload Terraform State
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
