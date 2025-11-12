@@ -29,24 +29,12 @@ jobs:
       TF_VAR_rg_name: rg-devsecops-dev
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
-      # ✅ Inject Azure credentials (from GitHub Secrets)
-      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-      TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-      TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-
-      # 👇 Optional – for AzureRM provider auto-auth
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
     steps:
       # 📦 Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 🔐 Azure Login
+      # 🔐 Azure Login using Service Principal
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
@@ -83,29 +71,21 @@ jobs:
           cd $TF_ROOT_DIR
           terraform validate
 
-      # 🧮 Terraform Plan (explicit var injection + debug)
+      # 🧮 Terraform Plan (inline secrets injection)
       - name: 🧮 Terraform Plan
         run: |
           cd $TF_ROOT_DIR
-          echo "🔎 Debug: Checking Terraform variables visibility..."
-          echo "SUBSCRIPTION_ID: ${TF_VAR_subscription_id:-(not set)}"
-          echo "CLIENT_ID: ${TF_VAR_client_id:-(not set)}"
-          echo "CLIENT_SECRET: ${TF_VAR_client_secret:-(not set)}"
-          echo "TENANT_ID: ${TF_VAR_tenant_id:-(not set)}"
-          echo "-------------------------------------------"
-
-          echo "✅ Exporting variables for Terraform..."
-          export TF_VAR_subscription_id="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          export TF_VAR_client_id="${{ secrets.AZURE_CLIENT_ID }}"
-          export TF_VAR_client_secret="${{ secrets.AZURE_CLIENT_SECRET }}"
-          export TF_VAR_tenant_id="${{ secrets.AZURE_TENANT_ID }}"
-          echo "✅ Variables exported successfully!"
+          echo "🔎 Debugging secret visibility..."
+          echo "SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          echo "CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
+          echo "TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
+          echo "✅ Secrets confirmed. Running Terraform plan..."
 
           terraform plan -out=tfplan -input=false \
-            -var "subscription_id=${TF_VAR_subscription_id}" \
-            -var "client_id=${TF_VAR_client_id}" \
-            -var "client_secret=${TF_VAR_client_secret}" \
-            -var "tenant_id=${TF_VAR_tenant_id}"
+            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
+            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
 
       # ⏳ Manual Approval before Apply
       - name: ⏳ Manual Approval before Apply
@@ -117,11 +97,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 🚀 Terraform Apply
+      # 🚀 Terraform Apply (inline secrets injection)
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
-          terraform apply -auto-approve tfplan
+          terraform apply -auto-approve tfplan \
+            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
+            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
 
       # 📤 Upload AKS Outputs
       - name: 📤 Upload AKS Outputs
