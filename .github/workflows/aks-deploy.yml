@@ -1,4 +1,4 @@
-name: 🚀 AKS Deploy Pipeline (Final + Plan Summary)
+name: 🚀 AKS Deploy Pipeline (Debug + Verified Secrets)
 
 on:
   workflow_dispatch:
@@ -49,7 +49,19 @@ jobs:
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Azure Login (Flat parameters)
+      # 2️⃣ 🧾 Debug Secret Availability
+      - name: 🧾 Debug Secret Availability
+        run: |
+          echo "🔍 Checking GitHub secrets..."
+          echo "----------------------------------------"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
+          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          echo "AZURE_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}"
+          echo "----------------------------------------"
+          echo "✅ Secrets should appear masked (***)."
+
+      # 3️⃣ Azure Login
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
@@ -58,36 +70,32 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
-      # 3️⃣ Verify Azure and Secret Injection
-      - name: 🧾 Verify Terraform Vars Exist
+      # 4️⃣ Verify Azure Connection
+      - name: 🔎 Verify Azure Connection
         run: |
-          echo "🔍 Checking if secrets are passed into environment..."
-          env | grep TF_VAR_ || echo "❌ No TF_VAR_* secrets found!"
-          echo "-----------------------------------"
-          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
-          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
-          echo "✅ Secret injection confirmed."
+          echo "🔍 Checking Azure authentication..."
+          az account show --output table
+          echo "✅ Azure authentication successful!"
 
-      # 4️⃣ Setup Terraform
+      # 5️⃣ Setup Terraform
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
-      # 5️⃣ Terraform Init
+      # 6️⃣ Terraform Init
       - name: 🧩 Terraform Init
         run: |
           cd $TF_ROOT_DIR
           terraform init -upgrade
 
-      # 6️⃣ Terraform Validate
+      # 7️⃣ Terraform Validate
       - name: ✅ Terraform Validate
         run: |
           cd $TF_ROOT_DIR
           terraform validate
 
-      # 7️⃣ Terraform Plan
+      # 8️⃣ Terraform Plan
       - name: 🧮 Terraform Plan
         id: tfplan
         run: |
@@ -95,14 +103,14 @@ jobs:
           terraform plan -out=tfplan -input=false
           terraform show -no-color tfplan > tfplan.txt
 
-      # 8️⃣ Upload Terraform Plan (for download)
+      # 9️⃣ Upload Terraform Plan
       - name: 📦 Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
           path: ${{ env.TF_ROOT_DIR }}/tfplan.txt
 
-      # 9️⃣ Display Plan Summary in GitHub Actions UI
+      # 🔟 Display Plan Summary in Actions UI
       - name: 🪶 Add Terraform Plan Summary
         run: |
           echo "### Terraform Plan Summary 📋" >> $GITHUB_STEP_SUMMARY
@@ -114,7 +122,7 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "✅ Plan summary added to Actions UI."
 
-      # 🔟 Manual Approval
+      # 11️⃣ Manual Approval before Apply
       - name: ⏳ Manual Approval before Apply
         uses: trstringer/manual-approval@v1
         with:
@@ -124,20 +132,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 11️⃣ Terraform Apply
+      # 12️⃣ Terraform Apply
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
-      # 12️⃣ Upload Terraform State
+      # 13️⃣ Upload Terraform State
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
           name: aks-outputs
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
 
-      # ✅ 13️⃣ Success Summary
+      # ✅ 14️⃣ Final Success Summary
       - name: 🎉 Deployment Summary
         if: success()
         run: |
