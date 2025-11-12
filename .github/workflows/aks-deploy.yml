@@ -26,7 +26,7 @@ jobs:
       TF_VAR_image_name: sampleapp
       TF_VAR_aks_cluster_name: devops-aks
       TF_VAR_aks_resource_group: rg-devsecops-dev
-      TF_VAR_rg_name: rg-devsecops-dev        # ✅ Added line for RG name
+      TF_VAR_rg_name: rg-devsecops-dev     # ✅ Must be inside this env block
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
       # 💾 Azure Credentials for Terraform Provider
@@ -40,7 +40,6 @@ jobs:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
     steps:
       # 📦 Checkout Repository
       - name: 📦 Checkout Repository
