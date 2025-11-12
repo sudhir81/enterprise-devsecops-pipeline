@@ -1,4 +1,4 @@
-name: 🚀 AKS Deploy Pipeline (Phase 4.4)
+name: 🚀 AKS Deploy Pipeline (Final Version)
 
 on:
   workflow_dispatch:
@@ -29,12 +29,21 @@ jobs:
       TF_VAR_rg_name: rg-devsecops-dev
       OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
 
+      # Azure Credentials
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+      TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
     steps:
-      # 📦 Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 🔐 Azure Login using Service Principal
       - name: 🔐 Azure Login using Service Principal
         uses: azure/login@v2
         with:
@@ -46,84 +55,48 @@ jobs:
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
 
-      # 🔎 Verify Azure Connection
-      - name: 🔎 Verify Azure Connection
+      - name: 🧾 Verify Terraform Vars Exist
         run: |
-          echo "Checking Azure authentication..."
-          az account show --output table
-          echo "✅ Azure authentication successful!"
+          echo "Checking if secrets are being passed into environment..."
+          env | grep TF_VAR_ || echo "❌ No TF_VAR_* secrets found!"
+          echo "-----------------------------------"
+          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
+          echo "✅ Secret injection step complete."
 
-      # ⚙️ Setup Terraform
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
-      # 🧩 Terraform Init
       - name: 🧩 Terraform Init
         run: |
           cd $TF_ROOT_DIR
           terraform init -upgrade
 
-      # ✅ Terraform Validate
       - name: ✅ Terraform Validate
         run: |
           cd $TF_ROOT_DIR
           terraform validate
 
-      # 🔍 Debug: Verify secrets before Terraform
-      - name: 🔍 Debug Secret Visibility
-        run: |
-          echo "DEBUG: Checking secret values..."
-          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
-          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
-          echo "AZURE_CLIENT_SECRET=**** (masked)"
-
-      # 🧮 Terraform Plan (inline explicit vars)
-      - name: 🧮 Terraform Plan
+      - name: 🧮 Terraform Plan (explicit vars for debug)
         run: |
           cd $TF_ROOT_DIR
-          echo "✅ Running Terraform Plan with inline vars..."
           terraform plan -out=tfplan -input=false \
-            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+            -var "subscription_id=${TF_VAR_subscription_id}" \
+            -var "client_id=${TF_VAR_client_id}" \
+            -var "client_secret=${TF_VAR_client_secret}" \
+            -var "tenant_id=${TF_VAR_tenant_id}"
 
-      # ⏳ Manual Approval before Apply
-      - name: ⏳ Manual Approval before Apply
-        uses: trstringer/manual-approval@v1
-        with:
-          approvers: sudhir81
-          minimum-approvals: 1
-          timeout-minutes: 30
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 🚀 Terraform Apply (inline explicit vars)
       - name: 🚀 Terraform Apply
+        if: success()
         run: |
           cd $TF_ROOT_DIR
-          terraform apply -auto-approve tfplan \
-            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+          terraform apply -auto-approve tfplan
 
-      # 📤 Upload AKS Outputs
       - name: 📤 Upload AKS Outputs
         uses: actions/upload-artifact@v4
         with:
           name: aks-outputs
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
-
-      # 🎉 Deployment Summary
-      - name: 🎉 Deployment Summary
-        run: |
-          echo "✅ AKS Deployment Completed Successfully!"
-          echo "------------------------------------------"
-          echo "Cluster: devops-aks"
-          echo "Resource Group: rg-devsecops-dev"
-          echo "Environment: dev"
-          echo "------------------------------------------"
