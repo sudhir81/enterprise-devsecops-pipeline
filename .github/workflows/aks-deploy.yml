@@ -1,4 +1,4 @@
-name: 🚀 AKS Deploy Pipeline (Final Version)
+name: 🚀 AKS Deploy Pipeline (OIDC)
 
 on:
   workflow_dispatch:
@@ -9,33 +9,15 @@ on:
         default: "dev"
 
 permissions:
+  id-token: write       # 🔥 REQUIRED for OIDC
   contents: read
 
 jobs:
   deploy-aks:
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ github.event.inputs.environment }}
-      url: https://portal.azure.com
 
     env:
-      # 🌍 Terraform Directory
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
-      OPA_POLICY_DIR: project4-enterprise-aks-devops-platform/policies/opa
-
-      # 💾 Azure Credentials for Terraform Provider
-      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-      TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-      TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-
-      # 👇 Required for Terraform AzureRM Provider
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      # 🧩 Terraform Variable Defaults
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -44,82 +26,48 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
+      # OIDC — no client_secret needed
+      ARM_CLIENT_ID: "8ff5b619-e748-4ffc-9cf5-b3b5a92300d6"
+      ARM_TENANT_ID: "ea391d70-8ca3-4e86-beef-3feee4811c01"
+      ARM_SUBSCRIPTION_ID: "98046183-6757-4572-8532-91d5dad505e2"
+
+      TF_VAR_subscription_id: "98046183-6757-4572-8532-91d5dad505e2"
+      TF_VAR_client_id: "8ff5b619-e748-4ffc-9cf5-b3b5a92300d6"
+      TF_VAR_tenant_id: "ea391d70-8ca3-4e86-beef-3feee4811c01"
+
     steps:
-      # 1️⃣ Checkout Repository
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Debug Secret Availability (Masked Output)
-      - name: 🧾 Verify Secret Injection
-        run: |
-          echo "----------------------------------------"
-          echo "🔍 Checking GitHub Secrets"
-          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}"
-          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}"
-          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "AZURE_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}"
-          echo "✅ Secrets should appear masked (***)."
-          echo "----------------------------------------"
-
-      # 3️⃣ Azure Login
-      - name: 🔐 Azure Login using Service Principal
+      - name: 🔐 Azure Login via OIDC (NO secret)
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          client-id: "8ff5b619-e748-4ffc-9cf5-b3b5a92300d6"
+          tenant-id: "ea391d70-8ca3-4e86-beef-3feee4811c01"
+          subscription-id: "98046183-6757-4572-8532-91d5dad505e2"
+          allow-no-subscriptions: false
 
-      # 4️⃣ Verify Azure Connection
       - name: 🔎 Verify Azure Connection
         run: |
-          echo "🔍 Checking Azure authentication..."
+          echo "Checking Azure authentication..."
           az account show --output table
           echo "✅ Azure authentication successful!"
 
-      # 5️⃣ Setup Terraform
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
-      # 6️⃣ Terraform Init
       - name: 🧩 Terraform Init
         run: |
           cd $TF_ROOT_DIR
           terraform init -upgrade
 
-      # 7️⃣ Terraform Validate
-      - name: ✅ Terraform Validate
-        run: |
-          cd $TF_ROOT_DIR
-          terraform validate
-
-      # 8️⃣ Terraform Plan
       - name: 🧮 Terraform Plan
-        id: plan
         run: |
           cd $TF_ROOT_DIR
           terraform plan -out=tfplan -input=false
-          terraform show -no-color tfplan > tfplan.txt
 
-      # 9️⃣ Upload Plan Artifact
-      - name: 📦 Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TF_ROOT_DIR }}/tfplan.txt
-
-      # 🔟 Display Plan Summary
-      - name: 🪶 Add Terraform Plan Summary
-        run: |
-          echo "### Terraform Plan Summary 📋" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`terraform" >> $GITHUB_STEP_SUMMARY
-          head -n 50 $TF_ROOT_DIR/tfplan.txt >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Plan summary added to GitHub Actions UI."
-
-      # 11️⃣ Manual Approval
       - name: ⏳ Manual Approval before Apply
         uses: trstringer/manual-approval@v1
         with:
@@ -129,24 +77,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 12️⃣ Terraform Apply
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
-      # 13️⃣ Upload Terraform State
-      - name: 📤 Upload Terraform State
+      - name: 📤 Upload TF State
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-state
+          name: aks-tfstate
           path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
-
-      # 14️⃣ Final Summary
-      - name: 🎉 Deployment Summary
-        if: success()
-        run: |
-          echo "-----------------------------------"
-          echo "✅ AKS Deployment Completed Successfully!"
-          echo "🌍 Environment: ${{ github.event.inputs.environment }}"
-          echo "-----------------------------------"
