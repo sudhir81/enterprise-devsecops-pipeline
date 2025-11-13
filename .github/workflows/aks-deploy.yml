@@ -9,7 +9,7 @@ on:
         default: "dev"
 
 permissions:
-  id-token: write       # 🔥 REQUIRED for OIDC
+  id-token: write     # 🔥 REQUIRED for OIDC
   contents: read
 
 jobs:
@@ -18,6 +18,8 @@ jobs:
 
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+
+      # Terraform runtime variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -26,32 +28,26 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # OIDC — no client_secret needed
-      ARM_CLIENT_ID: "8ff5b619-e748-4ffc-9cf5-b3b5a92300d6"
-      ARM_TENANT_ID: "ea391d70-8ca3-4e86-beef-3feee4811c01"
-      ARM_SUBSCRIPTION_ID: "98046183-6757-4572-8532-91d5dad505e2"
-
-      TF_VAR_subscription_id: "98046183-6757-4572-8532-91d5dad505e2"
-      TF_VAR_client_id: "8ff5b619-e748-4ffc-9cf5-b3b5a92300d6"
-      TF_VAR_tenant_id: "ea391d70-8ca3-4e86-beef-3feee4811c01"
+      # ❗ STOP — Do NOT define ARM_ or TF_VAR_* secrets for OIDC
+      # AzureRM provider auto-detects tokens from azure/login OIDC
 
     steps:
+
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🔐 Azure Login via OIDC (NO secret)
+      # 🔐 ACTUAL OIDC LOGIN (NO SECRET required)
+      - name: 🔐 Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          client-id: "8ff5b619-e748-4ffc-9cf5-b3b5a92300d6"
-          tenant-id: "ea391d70-8ca3-4e86-beef-3feee4811c01"
-          subscription-id: "98046183-6757-4572-8532-91d5dad505e2"
-          allow-no-subscriptions: false
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 🔎 Verify Azure Connection
+      - name: 🔎 Verify Azure Login
         run: |
-          echo "Checking Azure authentication..."
+          echo "Current Azure account:"
           az account show --output table
-          echo "✅ Azure authentication successful!"
 
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
