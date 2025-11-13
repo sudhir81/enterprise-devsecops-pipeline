@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Target environment to deploy (dev/preprod/prod)"
+        description: "Target environment (dev/preprod/prod)"
         required: true
         default: "dev"
 
 permissions:
-  id-token: write     # 🔥 REQUIRED for OIDC
+  id-token: write        # 🔥 REQUIRED FOR OIDC
   contents: read
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
 
-      # Terraform runtime variables
+      # Terraform variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -28,15 +28,12 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # ❗ STOP — Do NOT define ARM_ or TF_VAR_* secrets for OIDC
-      # AzureRM provider auto-detects tokens from azure/login OIDC
-
     steps:
 
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 🔐 ACTUAL OIDC LOGIN (NO SECRET required)
+      # 🔐 OIDC Login (NO CLIENT SECRET)
       - name: 🔐 Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -46,7 +43,7 @@ jobs:
 
       - name: 🔎 Verify Azure Login
         run: |
-          echo "Current Azure account:"
+          echo "🔎 Checking Azure identity..."
           az account show --output table
 
       - name: ⚙️ Setup Terraform
@@ -78,7 +75,7 @@ jobs:
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
-      - name: 📤 Upload TF State
+      - name: 📤 Upload Terraform State
         uses: actions/upload-artifact@v4
         with:
           name: aks-tfstate
