@@ -2,14 +2,9 @@ name: 🚀 AKS Deploy Pipeline (OIDC)
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment (dev/preprod/prod)"
-        required: true
-        default: "dev"
 
 permissions:
-  id-token: write        # 🔥 REQUIRED FOR OIDC
+  id-token: write     # 🔥 REQUIRED for OIDC login
   contents: read
 
 jobs:
@@ -19,7 +14,6 @@ jobs:
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
 
-      # Terraform variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -33,7 +27,6 @@ jobs:
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
-      # 🔐 OIDC Login (NO CLIENT SECRET)
       - name: 🔐 Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -43,7 +36,7 @@ jobs:
 
       - name: 🔎 Verify Azure Login
         run: |
-          echo "🔎 Checking Azure identity..."
+          echo "Logged into Azure using OIDC token:"
           az account show --output table
 
       - name: ⚙️ Setup Terraform
@@ -75,7 +68,7 @@ jobs:
           cd $TF_ROOT_DIR
           terraform apply -auto-approve tfplan
 
-      - name: 📤 Upload Terraform State
+      - name: 📤 Upload TF State
         uses: actions/upload-artifact@v4
         with:
           name: aks-tfstate
