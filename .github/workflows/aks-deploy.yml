@@ -9,7 +9,7 @@ on:
         default: "dev"
 
 permissions:
-  id-token: write
+  id-token: write      # REQUIRED for OIDC
   contents: read
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
 
-      # Terraform Variables (safe)
+      # Terraform runtime variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -28,7 +28,7 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # 🔥 REQUIRED for Terraform to detect subscription in OIDC mode
+      # OIDC – required for Terraform AzureRM provider
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
@@ -69,10 +69,8 @@ jobs:
         with:
           approvers: sudhir81
           minimum-approvals: 1
-          secret: ${{ secrets.GITHUB_TOKEN }}
           timeout-minutes: 30
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          secret: ${{ secrets.GITHUB_TOKEN }}   # REQUIRED FIX
 
       - name: 🚀 Terraform Apply
         run: |
