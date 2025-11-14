@@ -9,8 +9,9 @@ on:
         default: "dev"
 
 permissions:
-  id-token: write      # REQUIRED for OIDC
+  id-token: write
   contents: read
+  issues: write       # 🔥 REQUIRED FIX
 
 jobs:
   deploy-aks:
@@ -19,7 +20,7 @@ jobs:
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
 
-      # Terraform runtime variables
+      # Terraform Variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -28,12 +29,13 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # OIDC – required for Terraform AzureRM provider
+      # OIDC credentials for Terraform (from repo-level Variables)
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
 
     steps:
+
       - name: 📦 Checkout Repository
         uses: actions/checkout@v4
 
@@ -69,8 +71,7 @@ jobs:
         with:
           approvers: sudhir81
           minimum-approvals: 1
-          timeout-minutes: 30
-          secret: ${{ secrets.GITHUB_TOKEN }}   # REQUIRED FIX
+          secret: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🚀 Terraform Apply
         run: |
