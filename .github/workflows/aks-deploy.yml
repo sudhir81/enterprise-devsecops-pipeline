@@ -4,23 +4,26 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Target environment to deploy (dev/preprod/prod)"
+        description: "Target environment to deploy"
         required: true
         default: "dev"
 
 permissions:
   id-token: write
   contents: read
-  issues: write       # 🔥 REQUIRED FIX
 
 jobs:
   deploy-aks:
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write
+      contents: read
+      issues: write    # 🔥 FIX: required for manual approval step
+
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
 
-      # Terraform Variables
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_acr_name: devopsacr001
@@ -29,14 +32,12 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # OIDC credentials for Terraform (from repo-level Variables)
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
 
     steps:
-
-      - name: 📦 Checkout Repository
+      - name: 📦 Checkout
         uses: actions/checkout@v4
 
       - name: 🔐 Azure Login (OIDC)
@@ -47,9 +48,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: 🔎 Verify Azure Login
-        run: |
-          echo "Azure account:"
-          az account show --output table
+        run: az account show --output table
 
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -71,7 +70,7 @@ jobs:
         with:
           approvers: sudhir81
           minimum-approvals: 1
-          secret: ${{ secrets.GITHUB_TOKEN }}
+          secret: ${{ secrets.GITHUB_TOKEN }}   # MUST BE HERE
 
       - name: 🚀 Terraform Apply
         run: |
