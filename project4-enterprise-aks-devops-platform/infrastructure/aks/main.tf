@@ -15,11 +15,6 @@ terraform {
 provider "azurerm" {
   features {}
 
-  # Injected via GitHub Secrets (TF_VAR_* environment variables)
-  subscription_id = var.subscription_id
-  client_id       = var.client_id
-  client_secret   = var.client_secret
-  tenant_id       = var.tenant_id
 }
 
 ##########################################

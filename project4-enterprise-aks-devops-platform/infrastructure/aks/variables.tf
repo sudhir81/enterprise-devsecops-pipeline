@@ -84,32 +84,3 @@ variable "image_name" {
   default     = "sampleapp"
 }
 
-
-##########################################
-# 🔐 Azure Authentication Variables
-# These will be injected from GitHub Secrets via TF_VAR_*
-##########################################
-
-variable "subscription_id" {
-  description = "Azure Subscription ID used by Terraform and the AzureRM provider."
-  type        = string
-  sensitive   = true
-}
-
-variable "client_id" {
-  description = "Azure Service Principal Client ID."
-  type        = string
-  sensitive   = true
-}
-
-variable "client_secret" {
-  description = "Azure Service Principal Client Secret."
-  type        = string
-  sensitive   = true
-}
-
-variable "tenant_id" {
-  description = "Azure Tenant ID."
-  type        = string
-  sensitive   = true
-}
