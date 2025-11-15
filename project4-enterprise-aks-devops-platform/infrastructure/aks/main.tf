@@ -4,6 +4,7 @@
 
 terraform {
   required_version = ">= 1.3.0"
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -12,9 +13,9 @@ terraform {
   }
 }
 
+# 👇 IMPORTANT: Use Azure CLI / OIDC token — NO client_secret, NO SP vars
 provider "azurerm" {
   features {}
-
 }
 
 ##########################################
@@ -53,10 +54,6 @@ resource "azurerm_kubernetes_cluster" "aks" {
   identity {
     type = "SystemAssigned"
   }
-
-  # ❌ Removed disk_encryption_set_id (optional / not needed)
-  # Uncomment below and add var if needed in future
-  # disk_encryption_set_id = var.disk_encryption_set_id != "" ? var.disk_encryption_set_id : null
 
   network_profile {
     network_plugin = "azure"
