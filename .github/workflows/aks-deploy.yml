@@ -16,10 +16,13 @@ jobs:
   deploy-aks:
     runs-on: ubuntu-latest
 
+    environment:
+      name: aks-prod         # ← This triggers email approval
+      url: https://portal.azure.com
+
     permissions:
       id-token: write
       contents: read
-      issues: write    # required for manual approval
 
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
@@ -32,7 +35,7 @@ jobs:
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # 🔥 Required for AzureRM provider in OIDC mode
+      # OIDC Credentials
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
@@ -65,17 +68,6 @@ jobs:
         run: |
           cd $TF_ROOT_DIR
           terraform plan -out=tfplan -input=false
-
-      ###############################################################
-      # ⏳ Manual Approval — ANY collaborator can approve here
-      ###############################################################
-      - name: ⏳ Manual Approval before Apply
-        uses: trstringer/manual-approval@v1
-        with:
-          approvers: ""          # 👈 empty = any collaborator can approve
-          minimum-approvals: 1
-          secret: ${{ secrets.GITHUB_TOKEN }}
-          fail-on-denial: true
 
       - name: 🚀 Terraform Apply
         run: |
