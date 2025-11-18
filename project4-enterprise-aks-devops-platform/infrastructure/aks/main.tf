@@ -13,7 +13,7 @@ terraform {
   }
 }
 
-# 👇 Use Azure CLI / GitHub OIDC — NO client_secret needed
+# Using Azure CLI or OIDC for authentication (no client_secret here)
 provider "azurerm" {
   features {}
 }
@@ -76,10 +76,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
 ##########################################
 
 output "aks_cluster_name" {
-  value = azurerm_kubernetes_cluster.aks.name
+  description = "The name of the AKS cluster"
+  value       = azurerm_kubernetes_cluster.aks.name
 }
 
 output "aks_kube_config" {
-  value     = azurerm_kubernetes_cluster.aks.kube_config_raw
-  sensitive = true
+  description = "Kubeconfig for the AKS cluster (raw)"
+  value       = azurerm_kubernetes_cluster.aks.kube_config_raw
+  sensitive   = true
 }
