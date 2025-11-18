@@ -13,16 +13,14 @@ terraform {
   }
 }
 
-# 👇 Using Azure CLI / OIDC token — no client_secret required
 provider "azurerm" {
   features {}
 }
 
 ##########################################
-# 🌍 Resource Group (PRE-EXISTING)
+# 🌍 PRE-EXISTING Resource Group
 ##########################################
 
-# ❗RG already exists — do NOT create it
 data "azurerm_resource_group" "rg" {
   name = var.rg_name
 }
@@ -71,12 +69,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
 ##########################################
 
 output "aks_cluster_name" {
-  description = "The name of the AKS cluster"
-  value       = azurerm_kubernetes_cluster.aks.name
+  value = azurerm_kubernetes_cluster.aks.name
 }
 
 output "aks_kube_config" {
-  description = "Kubeconfig for the AKS cluster"
-  value       = azurerm_kubernetes_cluster.aks.kube_config_raw
-  sensitive   = true
+  value     = azurerm_kubernetes_cluster.aks.kube_config_raw
+  sensitive = true
 }
