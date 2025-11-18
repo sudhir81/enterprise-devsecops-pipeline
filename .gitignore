@@ -5,3 +5,7 @@
 .DS_Store
 .vscode/
 .idea/
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars

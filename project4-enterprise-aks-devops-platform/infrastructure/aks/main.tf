@@ -13,23 +13,18 @@ terraform {
   }
 }
 
-# Using Azure CLI or OIDC for authentication (no client_secret here)
+# 👇 Using Azure CLI / OIDC token — no client_secret required
 provider "azurerm" {
   features {}
 }
 
 ##########################################
-# 🌍 Resource Group
+# 🌍 Resource Group (PRE-EXISTING)
 ##########################################
 
-resource "azurerm_resource_group" "rg" {
-  name     = var.rg_name
-  location = var.location
-
-  tags = {
-    environment = var.environment
-    owner       = var.owner
-  }
+# ❗RG already exists — do NOT create it
+data "azurerm_resource_group" "rg" {
+  name = var.rg_name
 }
 
 ##########################################
@@ -38,8 +33,8 @@ resource "azurerm_resource_group" "rg" {
 
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = var.aks_cluster_name
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = data.azurerm_resource_group.rg.location
+  resource_group_name = data.azurerm_resource_group.rg.name
   dns_prefix          = "${var.prefix}-aks"
 
   default_node_pool {
@@ -81,7 +76,7 @@ output "aks_cluster_name" {
 }
 
 output "aks_kube_config" {
-  description = "Kubeconfig for the AKS cluster (raw)"
+  description = "Kubeconfig for the AKS cluster"
   value       = azurerm_kubernetes_cluster.aks.kube_config_raw
   sensitive   = true
 }

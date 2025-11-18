@@ -1,47 +1,38 @@
 variable "rg_name" {
-  type = string
-  description = "Resource Group name"
+  type        = string
+  description = "Existing Resource Group name"
 }
 
 variable "location" {
-  type = string
-  description = "Azure region (e.g. eastus)"
+  type        = string
+  description = "Azure region"
 }
 
 variable "environment" {
-  type = string
-  description = "Environment tag (dev/preprod/prod)"
+  type        = string
+  description = "Environment name"
 }
 
 variable "owner" {
-  type = string
-  description = "Owner tag"
+  type        = string
 }
 
 variable "prefix" {
-  type = string
-  description = "Prefix for resources and DNS"
+  type        = string
 }
 
 variable "aks_cluster_name" {
-  type = string
-  description = "AKS cluster name"
+  type        = string
 }
 
 variable "aks_node_size" {
-  type = string
-  description = "AKS node VM size"
-  default = "Standard_B4ms"
+  type        = string
 }
 
 variable "aks_node_count" {
-  type = number
-  description = "Initial node count for the default node pool"
-  default = 1
+  type        = number
 }
 
 variable "kubernetes_version" {
-  type = string
-  description = "Kubernetes version to use (region-dependent)"
-  default = "1.28.5"
+  type        = string
 }
