@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
+  id-token: write    # REQUIRED for OIDC
   contents: read
 
 jobs:
@@ -12,74 +12,63 @@ jobs:
     runs-on: ubuntu-latest
 
     environment:
-      name: aks-prod   # MUST MATCH Azure Federated Credential
+      name: aks-prod   # MUST MATCH your Azure federated credential
 
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
 
-      # Terraform variables
+      # Terraform variables (keep these here or set per-run)
       TF_VAR_environment: dev
       TF_VAR_prefix: entdevops
       TF_VAR_aks_cluster_name: devops-aks
       TF_VAR_aks_resource_group: rg-devsecops-dev
       TF_VAR_rg_name: rg-devsecops-dev
 
-      # 🔧 Fix OIDC auth newline issues
-      ARM_SUBSCRIPTION_ID: ${{ trim(vars.AZURE_SUBSCRIPTION_ID) }}
-      ARM_TENANT_ID:       ${{ trim(vars.AZURE_TENANT_ID) }}
-      ARM_CLIENT_ID:       ${{ trim(vars.AZURE_CLIENT_ID) }}
-      ARM_USE_OIDC: true
-
     steps:
-      # --------------------------------------
-      # 1. Checkout Repo
-      # --------------------------------------
       - name: 📦 Checkout
         uses: actions/checkout@v4
 
-      # --------------------------------------
-      # 2. Azure Login via OIDC
-      # --------------------------------------
+      - name: 🧼 Sanitize Azure credentials (trim newlines)
+        # This step makes sure there are no trailing newlines/spaces in the
+        # values we read from repo variables. The cleaned values are exported
+        # to GITHUB_ENV so they can be referenced in subsequent steps.
+        run: |
+          # read from repository variables, strip CR/LF and export
+          printf '%s' "${{ vars.AZURE_SUBSCRIPTION_ID }}" | tr -d '\r\n' > /tmp/az_sub
+          printf '%s' "${{ vars.AZURE_TENANT_ID }}"       | tr -d '\r\n' > /tmp/az_tenant
+          printf '%s' "${{ vars.AZURE_CLIENT_ID }}"       | tr -d '\r\n' > /tmp/az_client
+
+          echo "ARM_SUBSCRIPTION_ID=$(cat /tmp/az_sub)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(cat /tmp/az_tenant)"     >> $GITHUB_ENV
+          echo "ARM_CLIENT_ID=$(cat /tmp/az_client)"     >> $GITHUB_ENV
+
+        shell: bash
+
       - name: 🔐 Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          client-id:      ${{ trim(vars.AZURE_CLIENT_ID) }}
-          tenant-id:      ${{ trim(vars.AZURE_TENANT_ID) }}
-          subscription-id: ${{ trim(vars.AZURE_SUBSCRIPTION_ID) }}
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
 
-      # --------------------------------------
-      # 3. Verify Login
-      # --------------------------------------
       - name: 🔎 Verify Azure Login
         run: az account show --output table
 
-      # --------------------------------------
-      # 4. Setup Terraform
-      # --------------------------------------
       - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
-      # --------------------------------------
-      # 5. Terraform Init
-      # --------------------------------------
       - name: 🧩 Terraform Init
         run: |
           cd $TF_ROOT_DIR
           terraform init -upgrade
 
-      # --------------------------------------
-      # 6. Terraform Plan
-      # --------------------------------------
       - name: 🧮 Terraform Plan
         run: |
           cd $TF_ROOT_DIR
           terraform plan -out=tfplan -input=false
 
-      # --------------------------------------
-      # 7. Terraform Apply
-      # --------------------------------------
       - name: 🚀 Terraform Apply
         run: |
           cd $TF_ROOT_DIR
