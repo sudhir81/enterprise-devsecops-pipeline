@@ -1,86 +1,40 @@
-##########################################
-# 🌍 Environment Configuration Variables
-##########################################
-
-variable "rg_name" {
-  description = "Name of the Azure Resource Group for AKS and related resources."
-  type        = string
-  default     = "rg-devsecops-dev"
-}
-
-variable "location" {
-  description = "Azure region where resources will be deployed."
-  type        = string
-  default     = "eastus"
-}
-
 variable "environment" {
-  description = "Deployment environment (e.g. dev, preprod, prod)."
-  type        = string
-  default     = "dev"
-}
-
-variable "owner" {
-  description = "Owner or responsible person/team for tagging purposes."
-  type        = string
-  default     = "sudhir"
+  type = string
 }
 
 variable "prefix" {
-  description = "Prefix to use for naming Azure resources."
-  type        = string
-  default     = "entdevops"
+  type = string
 }
 
+variable "location" {
+  type    = string
+  default = "eastus"
+}
 
-##########################################
-# ☸️ AKS Cluster Configuration Variables
-##########################################
+variable "owner" {
+  type    = string
+  default = "sudhir"
+}
+
+variable "rg_name" {
+  type = string
+}
 
 variable "aks_cluster_name" {
-  description = "Name of the Azure Kubernetes Service (AKS) cluster."
-  type        = string
-  default     = "devops-aks"
-}
-
-variable "aks_resource_group" {
-  description = "Resource group that will contain the AKS cluster."
-  type        = string
-  default     = "rg-devsecops-dev"
+  type = string
 }
 
 variable "aks_node_size" {
-  description = "The size of the virtual machines used for the AKS node pool."
-  type        = string
-  default     = "Standard_B4ms"
+  type    = string
+  default = "Standard_B4ms"
 }
 
 variable "aks_node_count" {
-  description = "Initial number of nodes in the AKS default node pool."
-  type        = number
-  default     = 1
+  type    = number
+  default = 1
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version for the AKS cluster."
-  type        = string
-  default     = "1.29.7"
+  type    = string
+  default = "1.28.9"
 }
-
-
-##########################################
-# 🏗️ ACR (Azure Container Registry)
-##########################################
-
-variable "acr_name" {
-  description = "Name of the Azure Container Registry."
-  type        = string
-  default     = "devopsacr001"
-}
-
-variable "image_name" {
-  description = "Docker image name to be deployed from ACR."
-  type        = string
-  default     = "sampleapp"
-}
-
