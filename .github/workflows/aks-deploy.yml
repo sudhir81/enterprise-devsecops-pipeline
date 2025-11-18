@@ -1,4 +1,4 @@
-name: 🚀 AKS Deploy Pipeline (OIDC)
+name: Deploy AKS
 
 on:
   workflow_dispatch:
@@ -11,97 +11,47 @@ jobs:
   deploy-aks:
     runs-on: ubuntu-latest
 
-    environment:
-      name: aks-prod
-      url: https://portal.azure.com
-
     env:
       TF_ROOT_DIR: project4-enterprise-aks-devops-platform/infrastructure/aks
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: true
+      ARM_ACCESS_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
 
-      # Terraform variables
-      TF_VAR_environment: dev
-      TF_VAR_prefix: entdevops
-      TF_VAR_acr_name: devopsacr001
-      TF_VAR_image_name: sampleapp
-      TF_VAR_aks_cluster_name: devops-aks
-      TF_VAR_aks_resource_group: rg-devsecops-dev
-      TF_VAR_rg_name: rg-devsecops-dev
-
-      # OIDC credentials
-      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      TF_VAR_environment: "dev"
+      TF_VAR_prefix: "entdevops"
+      TF_VAR_aks_cluster_name: "devops-aks"
+      TF_VAR_rg_name: "rg-devsecops-dev"
+      TF_VAR_aks_resource_group: "rg-devsecops-dev"
 
     steps:
-      # -----------------------------
-      # 1. Checkout Repo
-      # -----------------------------
-      - name: 📦 Checkout
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # 2. Download existing TF state
-      # -----------------------------
-      - name: 📥 Download Terraform State
-        uses: actions/download-artifact@v4
-        with:
-          name: aks-tfstate
-          path: ${{ env.TF_ROOT_DIR }}
-        continue-on-error: true
-
-      # -----------------------------
-      # 3. Azure Login (OIDC)
-      # -----------------------------
-      - name: 🔐 Azure Login (OIDC)
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # -----------------------------
-      # 4. Confirm Login
-      # -----------------------------
-      - name: 🔎 Verify Azure Login
-        run: az account show --output table
-
-      # -----------------------------
-      # 5. Terraform Setup
-      # -----------------------------
-      - name: ⚙️ Setup Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
 
-      # -----------------------------
-      # 6. Terraform Init
-      # -----------------------------
-      - name: 🧩 Terraform Init
+      - name: Terraform Init (Azure Storage Backend)
         run: |
           cd $TF_ROOT_DIR
-          terraform init -upgrade
+          terraform init -input=false
 
-      # -----------------------------
-      # 7. Terraform Plan
-      # -----------------------------
-      - name: 🧮 Terraform Plan
+      - name: Terraform Plan
         run: |
           cd $TF_ROOT_DIR
-          terraform plan -out=tfplan -input=false
+          terraform plan -input=false
 
-      # -----------------------------
-      # 8. Terraform Apply
-      # -----------------------------
-      - name: 🚀 Terraform Apply
+      - name: Terraform Apply
         run: |
           cd $TF_ROOT_DIR
-          terraform apply -auto-approve tfplan
-
-      # -----------------------------
-      # 9. Upload updated TF state
-      # -----------------------------
-      - name: 📤 Upload Terraform State
-        uses: actions/upload-artifact@v4
-        with:
-          name: aks-tfstate
-          path: ${{ env.TF_ROOT_DIR }}/terraform.tfstate
+          terraform apply -auto-approve -input=false
