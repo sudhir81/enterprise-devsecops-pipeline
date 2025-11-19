@@ -1,0 +1,56 @@
+name: 🔨 Build & Push to ACR
+
+on:
+  push:
+    paths:
+      - "sampleapp/**"
+      - ".github/workflows/acr-build-push.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: devopsacr001
+  IMAGE_NAME: sampleapp
+  DOCKERFILE_PATH: sampleapp/Dockerfile
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: aks-prod
+
+    steps:
+      # 1️⃣ Checkout Code
+      - name: 📦 Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Azure Login (OIDC)
+      - name: 🔐 Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # 3️⃣ ACR Login
+      - name: 🔑 Login to ACR
+        run: |
+          az acr login --name $ACR_NAME
+
+      # 4️⃣ Build Docker Image
+      - name: 🏗 Build Docker Image
+        run: |
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:latest -f $DOCKERFILE_PATH .
+
+      # 5️⃣ Push Image
+      - name: 🚀 Push Docker Image
+        run: |
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:latest
+
+      # 6️⃣ Output Info
+      - name: 📢 Show pushed image
+        run: echo "Image pushed: $ACR_NAME.azurecr.io/$IMAGE_NAME:latest"
