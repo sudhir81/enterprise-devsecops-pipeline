@@ -1,10 +1,10 @@
-name: 🔨 Build & Push to ACR (OIDC)
+name: 🔨 Build & Push to ACR (Free Tier Safe)
 
 on:
   workflow_dispatch:
 
 permissions:
-  id-token: write     # REQUIRED for OIDC
+  id-token: write
   contents: read
 
 env:
@@ -15,20 +15,16 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
-    # 👈 MUST MATCH THE FEDERATED CREDENTIAL IN AZURE (aks-prod)
     environment:
-      name: aks-prod
+      name: aks-prod   # MUST match your federated credential
 
     steps:
-      # -----------------------------------------
-      # 1. Checkout Code
-      # -----------------------------------------
       - name: 📦 Checkout Code
         uses: actions/checkout@v4
 
-      # -----------------------------------------
-      # 2. Azure Login with OIDC
-      # -----------------------------------------
+      # ---------------------------------------------
+      # 1. Azure Login (OIDC)
+      # ---------------------------------------------
       - name: 🔐 Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -36,13 +32,23 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # -----------------------------------------
-      # 3. Build & Push Image to ACR  
-      #    (NO docker daemon needed)
-      # -----------------------------------------
-      - name: 🛠 Build & Push Image to ACR
+      # ---------------------------------------------
+      # 2. Enable Docker login to ACR
+      # ---------------------------------------------
+      - name: 🔑 Login to ACR
         run: |
-          az acr build \
-            --registry $ACR_NAME \
-            --image $IMAGE_NAME:latest \
-            ./sampleapp
+          az acr login --name $ACR_NAME
+
+      # ---------------------------------------------
+      # 3. Build Docker Image (locally on GitHub runner)
+      # ---------------------------------------------
+      - name: 🏗 Build Docker image
+        run: |
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:latest ./sampleapp
+
+      # ---------------------------------------------
+      # 4. Push Image to ACR
+      # ---------------------------------------------
+      - name: 🚀 Push Docker image
+        run: |
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:latest
