@@ -1,10 +1,10 @@
-name: 🔨 Build & Push to ACR
+name: 🔨 Build & Push to ACR (OIDC)
 
 on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
+  id-token: write     # REQUIRED for OIDC
   contents: read
 
 env:
@@ -15,10 +15,20 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
+    # 👈 MUST MATCH THE FEDERATED CREDENTIAL IN AZURE (aks-prod)
+    environment:
+      name: aks-prod
+
     steps:
-      - name: 📥 Checkout code
+      # -----------------------------------------
+      # 1. Checkout Code
+      # -----------------------------------------
+      - name: 📦 Checkout Code
         uses: actions/checkout@v4
 
+      # -----------------------------------------
+      # 2. Azure Login with OIDC
+      # -----------------------------------------
       - name: 🔐 Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -26,10 +36,11 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 🔍 Verify Azure login
-        run: az account show
-
-      - name: 🛠 Build & Push image to ACR
+      # -----------------------------------------
+      # 3. Build & Push Image to ACR  
+      #    (NO docker daemon needed)
+      # -----------------------------------------
+      - name: 🛠 Build & Push Image to ACR
         run: |
           az acr build \
             --registry $ACR_NAME \
